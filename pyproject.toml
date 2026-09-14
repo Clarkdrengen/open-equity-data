@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "open-equity-data"
+version = "0.1.0"
+description = "Open and reproducible US equity return and corporate-action data pipeline"
+requires-python = ">=3.11"
+dependencies = [
+    "duckdb",
+    "python-dotenv",
+    "httpx",
+    "beautifulsoup4",
+    "tenacity",
+]
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+namespaces = false

@@ -9,7 +9,7 @@ WITH ordered AS (
             PARTITION BY act_symbol
             ORDER BY date
         ) AS previous_date
-    FROM bronze.ohlcv
+    FROM silver.clean_ohlcv
 ),
 
 breaks AS (

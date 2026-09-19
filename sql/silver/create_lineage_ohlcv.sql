@@ -18,6 +18,6 @@ JOIN silver.ticker_lineage_master lm
 JOIN silver.ticker_episode e
   ON e.ticker_episode_id = m.ticker_episode_id
 
-JOIN bronze.ohlcv o
+JOIN silver.clean_ohlcv o
   ON o.act_symbol = e.act_symbol
  AND o.date BETWEEN e.start_date AND e.end_date;

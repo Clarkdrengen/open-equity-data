@@ -13,6 +13,7 @@ dependencies = [
     "httpx",
     "beautifulsoup4",
     "tenacity",
+    "exchange-calendars",
 ]
 
 [tool.setuptools]

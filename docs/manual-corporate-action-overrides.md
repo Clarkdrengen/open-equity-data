@@ -436,3 +436,22 @@ USD 0.09 cash dividend plus separate 3% stock dividend. Dividend basis: pre-stoc
 
 ## TRI — 2026-05-04
 Return of capital plus share consolidation. Validated cash amount: USD 1.435518 per pre-consolidation share. Validated consolidation ratio: 0.984560.
+
+## PRTK — 2014 special dividend
+
+Raw dividend date 2014-10-22 was not the effective ex-dividend date.
+
+Issuer/exchange evidence supports:
+- cash amount: approximately USD 8.01 per share
+- effective ex-dividend date: 2014-10-31
+
+Treatment: ordinary cash dividend moved to the correct effective ex-date.
+
+## VISN — 2026 special distribution
+
+Issuer evidence supports:
+- cash amount: USD 5.00 per share
+- effective ex-dividend date: 2026-08-28
+
+The raw 2026-08-17 date is retained for provenance but is not used as the
+economic ex-dividend date.

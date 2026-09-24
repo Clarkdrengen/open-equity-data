@@ -17,6 +17,7 @@ WITH base AS (
         o.dividend_share_basis,
         o.override_split_ratio,
         o.override_dividend_amount,
+        a.corrected_dividend_amount AS automatic_corrected_dividend_amount,
         o.override_dividend_ex_date,
         o.override_split_effective_date,
         o.resolution_source,
@@ -39,6 +40,10 @@ WITH base AS (
     LEFT JOIN silver.corporate_action_override o
       ON o.security_id = d.security_id
      AND o.event_date = d.ex_date
+
+    LEFT JOIN silver.automatic_dividend_correction a
+      ON a.security_id = d.security_id
+     AND a.event_date = d.ex_date
 ),
 resolved AS (
     SELECT
@@ -59,7 +64,10 @@ resolved AS (
             THEN COALESCE(override_dividend_amount, raw_dividend_amount)
                  * COALESCE(override_split_ratio, daily_split_ratio)
             WHEN daily_split_ratio = 1.0
-            THEN raw_dividend_amount
+            THEN COALESCE(
+                automatic_corrected_dividend_amount,
+                raw_dividend_amount
+            )
             ELSE NULL
         END AS dividend_previous_share_basis,
         CASE

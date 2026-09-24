@@ -673,3 +673,263 @@ VALUES (
     'Thomson Reuters May 1 2026 return-of-capital announcement',
     'Issuer specifies US$1.435518 cash per pre-consolidation share and 0.984560 post-consolidation shares for each pre-consolidation share.'
 );
+
+-- RAND 2020-05-12
+INSERT OR REPLACE INTO silver.corporate_action_override (
+    security_id, ticker, event_date,
+    corporate_action_type, dividend_share_basis,
+    original_split_ratio, original_dividend_amount,
+    override_split_ratio, override_dividend_amount,
+    override_dividend_ex_date, override_split_effective_date,
+    resolution_source, source_reference, resolution_notes
+)
+VALUES (
+    49759, 'RAND', DATE '2020-05-12',
+    'composite_cash_and_in_kind_distribution', 'unresolved',
+    1.0, 1000.0,
+    1.0, NULL,
+    DATE '2020-05-12', NULL,
+    'issuer_primary_source',
+    'Rand Capital May 2020 special dividend and reverse split disclosures',
+    'Issuer declared approximately $1.62/share special dividend paid partly in cash and largely in stock. Raw $1000 value is a retrospective adjustment artefact. Exclude from generic cash-dividend GTR treatment.'
+);
+
+-- SRV 2020-06-12
+INSERT OR REPLACE INTO silver.corporate_action_override (
+    security_id, ticker, event_date,
+    corporate_action_type, dividend_share_basis,
+    original_split_ratio, original_dividend_amount,
+    override_split_ratio, override_dividend_amount,
+    override_dividend_ex_date, override_split_effective_date,
+    resolution_source, source_reference, resolution_notes
+)
+VALUES (
+    55740, 'SRV', DATE '2020-06-12',
+    'cash_dividend', 'pre_split',
+    1.0, 786.432,
+    1.0, 0.192,
+    DATE '2020-06-12', NULL,
+    'provider_historical_unadjusted',
+    'EODHD unadjusted historical dividend',
+    'Replace retrospectively adjusted dividend amount with historical per-share amount.'
+);
+
+-- CIM 2014-01-06
+INSERT OR REPLACE INTO silver.corporate_action_override (
+    security_id, ticker, event_date,
+    corporate_action_type, dividend_share_basis,
+    original_split_ratio, original_dividend_amount,
+    override_split_ratio, override_dividend_amount,
+    override_dividend_ex_date, override_split_effective_date,
+    resolution_source, source_reference, resolution_notes
+)
+VALUES (
+    11602, 'CIM', DATE '2014-01-06',
+    'cash_dividend', 'pre_split',
+    1.0, 1.0,
+    1.0, 0.20,
+    DATE '2014-01-06', NULL,
+    'issuer_primary_source',
+    'Chimera Investment Corporation special dividend announcement',
+    'Issuer declared $0.20 per common share; raw $1.00 value is retrospectively adjusted.'
+);
+
+-- BWLP 2026-03-13
+INSERT OR REPLACE INTO silver.corporate_action_override (
+    security_id, ticker, event_date,
+    corporate_action_type, dividend_share_basis,
+    original_split_ratio, original_dividend_amount,
+    override_split_ratio, override_dividend_amount,
+    override_dividend_ex_date, override_split_effective_date,
+    resolution_source, source_reference, resolution_notes
+)
+VALUES (
+    9304, 'BWLP', DATE '2026-03-13',
+    'cash_dividend_currency_correction', 'pre_split',
+    1.0, 5.4297,
+    1.0, 0.57,
+    DATE '2026-03-13', NULL,
+    'issuer_primary_source',
+    'BW LPG Q4 2025 dividend announcement',
+    'Raw amount is NOK 5.4297; NYSE dividend is USD 0.57/share.'
+);
+
+-- BWLP 2026-06-12
+INSERT OR REPLACE INTO silver.corporate_action_override (
+    security_id, ticker, event_date,
+    corporate_action_type, dividend_share_basis,
+    original_split_ratio, original_dividend_amount,
+    override_split_ratio, override_dividend_amount,
+    override_dividend_ex_date, override_split_effective_date,
+    resolution_source, source_reference, resolution_notes
+)
+VALUES (
+    9304, 'BWLP', DATE '2026-06-12',
+    'cash_dividend_currency_correction', 'pre_split',
+    1.0, 6.196,
+    1.0, 0.67,
+    DATE '2026-06-12', NULL,
+    'issuer_primary_source',
+    'BW LPG Q1 2026 dividend announcement',
+    'Raw amount is NOK 6.1960; NYSE dividend is USD 0.67/share.'
+);
+
+-- BWLP 2026-09-08
+INSERT OR REPLACE INTO silver.corporate_action_override (
+    security_id, ticker, event_date,
+    corporate_action_type, dividend_share_basis,
+    original_split_ratio, original_dividend_amount,
+    override_split_ratio, override_dividend_amount,
+    override_dividend_ex_date, override_split_effective_date,
+    resolution_source, source_reference, resolution_notes
+)
+VALUES (
+    9304, 'BWLP', DATE '2026-09-08',
+    'cash_dividend_currency_correction', 'pre_split',
+    1.0, 8.8914,
+    1.0, 0.95,
+    DATE '2026-09-08', NULL,
+    'issuer_primary_source',
+    'BW LPG Q2 2026 dividend announcement',
+    'Raw amount is NOK 8.8914; NYSE dividend is USD 0.95/share.'
+);
+
+-- CTRE 2014-10-29 / effective 2014-12-11
+INSERT OR REPLACE INTO silver.corporate_action_override (
+    security_id, ticker, event_date,
+    corporate_action_type, dividend_share_basis,
+    original_split_ratio, original_dividend_amount,
+    override_split_ratio, override_dividend_amount,
+    override_dividend_ex_date, override_split_effective_date,
+    resolution_source, source_reference, resolution_notes
+)
+VALUES (
+    13779, 'CTRE', DATE '2014-10-29',
+    'composite_cash_and_in_kind_distribution', 'unresolved',
+    1.0, 5.88,
+    1.0, NULL,
+    DATE '2014-12-11', NULL,
+    'issuer_exchange_primary_source',
+    'Nasdaq Equity Trader Alert 2014-96',
+    'Special $5.88 cash-and-stock distribution. Due-bill ex-date was 2014-12-11, not 2014-10-29. Exclude from generic cash-dividend treatment pending explicit cash/stock valuation.'
+);
+
+-- MDLZ 2012-10-02
+INSERT OR REPLACE INTO silver.corporate_action_override (
+    security_id, ticker, event_date,
+    corporate_action_type, dividend_share_basis,
+    original_split_ratio, original_dividend_amount,
+    override_split_ratio, override_dividend_amount,
+    override_dividend_ex_date, override_split_effective_date,
+    resolution_source, source_reference, resolution_notes
+)
+VALUES (
+    38345, 'MDLZ', DATE '2012-10-02',
+    'composite_cash_and_in_kind_distribution', 'unresolved',
+    1.0, 14.173,
+    1.0, NULL,
+    DATE '2012-10-02', NULL,
+    'issuer_primary_source',
+    'Mondelez/Kraft Foods Group spin-off documentation',
+    'Not a cash dividend. Shareholders received 1 KRFT share for every 3 KFT shares. Exclude from generic cash-dividend GTR treatment.'
+);
+
+-- IDT 2011-10-31
+INSERT OR REPLACE INTO silver.corporate_action_override (
+    security_id, ticker, event_date,
+    corporate_action_type, dividend_share_basis,
+    original_split_ratio, original_dividend_amount,
+    override_split_ratio, override_dividend_amount,
+    override_dividend_ex_date, override_split_effective_date,
+    resolution_source, source_reference, resolution_notes
+)
+VALUES (
+    29698, 'IDT', DATE '2011-10-31',
+    'composite_cash_and_in_kind_distribution', 'unresolved',
+    1.0, 7.72612,
+    1.0, NULL,
+    DATE '2011-10-31', NULL,
+    'issuer_primary_source',
+    'IDT / Genie Energy spin-off filings',
+    'Not a cash dividend. IDT shareholders received Genie Energy shares pro rata. Exclude from generic cash-dividend GTR treatment.'
+);
+
+-- EXPE 2011-12-21
+INSERT OR REPLACE INTO silver.corporate_action_override (
+    security_id, ticker, event_date,
+    corporate_action_type, dividend_share_basis,
+    original_split_ratio, original_dividend_amount,
+    override_split_ratio, override_dividend_amount,
+    override_dividend_ex_date, override_split_effective_date,
+    resolution_source, source_reference, resolution_notes
+)
+VALUES (
+    19666, 'EXPE', DATE '2011-12-21',
+    'composite_cash_and_in_kind_distribution', 'unresolved',
+    1.0, 15.125,
+    1.0, NULL,
+    DATE '2011-12-21', NULL,
+    'issuer_primary_source',
+    'Expedia / Tripadvisor spin-off documentation',
+    'Not a cash dividend. Transaction combined a 1-for-2 reverse split with Tripadvisor spin-off. Exclude from generic cash-dividend GTR treatment.'
+);
+
+-- AIV 2020-11-03
+INSERT OR REPLACE INTO silver.corporate_action_override (
+    security_id, ticker, event_date,
+    corporate_action_type, dividend_share_basis,
+    original_split_ratio, original_dividend_amount,
+    override_split_ratio, override_dividend_amount,
+    override_dividend_ex_date, override_split_effective_date,
+    resolution_source, source_reference, resolution_notes
+)
+VALUES (
+    2178, 'AIV', DATE '2020-11-03',
+    'composite_cash_and_in_kind_distribution', 'unresolved',
+    1.0, 8.2,
+    1.0, NULL,
+    DATE '2020-11-03', NULL,
+    'issuer_primary_source',
+    'Aimco November 2020 special dividend announcement',
+    'Special dividend of $8.20 was paid in a combination of cash and stock. Exclude from generic cash-dividend GTR treatment.'
+);
+
+-- PRTK 2014 special cash dividend
+INSERT OR REPLACE INTO silver.corporate_action_override (
+    security_id, ticker, event_date,
+    corporate_action_type, dividend_share_basis,
+    original_split_ratio, original_dividend_amount,
+    override_split_ratio, override_dividend_amount,
+    override_dividend_ex_date, override_split_effective_date,
+    resolution_source, source_reference, resolution_notes
+)
+VALUES (
+    47969, 'PRTK', DATE '2014-10-22',
+    'cash_dividend', 'pre_split',
+    1.0, 8.004,
+    1.0, 8.01,
+    DATE '2014-10-31', NULL,
+    'issuer_primary_source',
+    'Paratek special dividend disclosure / Nasdaq ex-dividend treatment',
+    'Issuer confirms approximately $8.01 special cash dividend; effective ex-dividend date was 2014-10-31 rather than vendor date 2014-10-22.'
+);
+
+-- VISN 2026 special cash distribution
+INSERT OR REPLACE INTO silver.corporate_action_override (
+    security_id, ticker, event_date,
+    corporate_action_type, dividend_share_basis,
+    original_split_ratio, original_dividend_amount,
+    override_split_ratio, override_dividend_amount,
+    override_dividend_ex_date, override_split_effective_date,
+    resolution_source, source_reference, resolution_notes
+)
+VALUES (
+    61626, 'VISN', DATE '2026-08-17',
+    'cash_dividend', 'pre_split',
+    1.0, 5.0,
+    1.0, 5.0,
+    DATE '2026-08-28', NULL,
+    'issuer_primary_source',
+    'Vistance Networks special distribution announcement',
+    'Issuer confirms $5.00 cash distribution with ex-dividend date 2026-08-28; vendor date 2026-08-17 is not the effective ex-date.'
+);

@@ -14,6 +14,7 @@ dependencies = [
     "beautifulsoup4",
     "tenacity",
     "exchange-calendars",
+    "pytz",
 ]
 
 [tool.setuptools]

@@ -1,0 +1,217 @@
+# Technical Return-Prediction Benchmark
+
+## Objective
+
+Test whether a compact set of technical and market-state variables contains
+stable information about future equity returns.
+
+The first benchmark is intentionally simple and falsifiable. It is designed as
+a comparison exercise rather than as an optimized trading strategy.
+
+## Research universe
+
+Primary benchmark universe:
+
+`primary_research_eligible_exchange`
+
+This contains common equity on NASDAQ, NYSE, AMEX / NYSE MKT that also passes
+the return-data research eligibility rules.
+
+Robustness universe:
+
+`primary_research_eligible_broad`
+
+Delisted securities are retained where otherwise eligible.
+
+## Timing convention
+
+For observation date `t`, all explanatory variables must be computable using
+information available through the close of `t`.
+
+The benchmark uses multiple forward prediction horizons:
+
+- 1 trading day
+- 5 trading days
+- 10 trading days
+- 20 trading days
+- 60 trading days
+
+For each horizon `h`, the continuous target is the compounded forward
+market-relative gross total return:
+
+`forward_rel_return_h =
+    product(1 + security_gtr[t+1:t+h])
+    / product(1 + market_gtr[t+1:t+h])
+    - 1`
+
+The corresponding classifier target is:
+
+`target_outperform_h = 1[forward_rel_return_h > 0]`
+
+Both the continuous forward return and binary classification label are retained
+in the research table.
+
+Forward labels begin after date `t`; no return from date `t` enters its own
+target.
+
+A forward target is populated only when all `h` required future trading-session
+returns are present and research eligible. Labels must not bridge missing
+observations, quarantined returns, or security-series breaks.
+
+This is initially a predictive benchmark rather than an executable trading
+backtest. Any economically implemented strategy will later require an explicit
+execution convention, such as trading at the next open.
+
+## Initial feature set
+
+Where a feature has a meaningful trailing-window interpretation, it is
+calculated over all three standard horizons:
+
+- 14 trading sessions
+- 20 trading sessions
+- 60 trading sessions
+
+No horizon is selected ex ante on the basis of apparent predictive performance.
+
+### Immediate return
+
+- `lag_1d_gtr`
+
+### Trailing compounded return
+
+- `trailing_gtr_14d`
+- `trailing_gtr_20d`
+- `trailing_gtr_60d`
+
+Trailing returns are compounded rather than summed.
+
+### Realized volatility
+
+- `realized_vol_14d`
+- `realized_vol_20d`
+- `realized_vol_60d`
+
+For a signal observed at the close of date `t`, realized volatility used to
+standardize the date-`t` return is estimated using returns through `t-1`.
+This prevents the return shock from mechanically changing its own volatility
+denominator.
+
+### Volatility-scaled one-day return
+
+- `scaled_lag_1d_return_14d`
+- `scaled_lag_1d_return_20d`
+- `scaled_lag_1d_return_60d`
+
+Each feature is the current one-day gross-total-return shock divided by the
+corresponding trailing realized-volatility estimate.
+
+### RSI
+
+- `rsi_14`
+- `rsi_20`
+- `rsi_60`
+
+RSI is calculated using information through the close of date `t`.
+
+### Relative volume
+
+- `relative_volume_14d`
+- `relative_volume_20d`
+- `relative_volume_60d`
+
+Relative volume compares date-`t` volume with the trailing median volume for
+the same security. The reference window excludes date `t`.
+
+### Security-level volume surprise
+
+- `volume_zscore_14d`
+- `volume_zscore_20d`
+- `volume_zscore_60d`
+
+The volume z-score is calculated from `log1p(volume)` relative to the same
+security's trailing mean and standard deviation.
+
+The reference window excludes date `t`.
+
+This is a time-series normalization within each security, not a
+cross-sectional z-score.
+
+### Market state
+
+- `market_return_1d`
+- `market_relative_return_1d`
+
+These are intentionally one-day state variables rather than mechanically
+duplicated across the 14/20/60-session windows. Longer-horizon market-regime
+features may be introduced later as a separate feature family.
+
+## Feature-set philosophy
+
+The initial feature set intentionally retains overlapping 14-, 20- and
+60-session versions of the same economic state variables.
+
+Multicollinearity is not treated as a reason for manual feature deletion in the
+nonlinear benchmark models. The benchmark will instead test whether the models
+can exploit or ignore correlated representations out of sample.
+
+Raw price level, raw volume, ticker/security identifiers, cumulative wealth
+index, fundamentals, sector variables and large unconstrained families of
+technical indicators are excluded from the first benchmark.
+
+## Train / validation / test split
+
+Train:
+2011-01-01 through 2022-12-31
+
+Validation:
+2023-01-01 through 2024-12-31
+
+Test:
+2025-01-01 onward
+
+Random cross-validation is prohibited.
+
+## Benchmark models
+
+Initial models:
+
+1. unconditional / base-rate classifier
+2. logistic regression
+3. gradient-boosted trees
+4. TabPFN-3.5 classifier
+
+TabPFN will initially be trained on a manageable temporally representative
+training sample rather than the complete multi-million-row panel.
+
+## Evaluation
+
+Primary statistical metrics:
+
+- log loss
+- Brier score
+- ROC-AUC
+- accuracy
+- calibration
+
+Economic diagnostics:
+
+- mean forward excess return by predicted-probability decile
+- top-minus-bottom probability-decile return spread
+- stability by calendar period
+- comparison across forecast horizons
+
+No model will be judged from accuracy alone.
+
+## Research progression
+
+The first experiment asks whether predictive structure exists at all.
+
+If evidence is positive, subsequent work may test:
+
+- alternative target definitions and holding-period conventions
+- broader common-equity universe
+- liquidity and price robustness filters
+- additional technical variables
+- fundamentals and other point-in-time information
+- walk-forward retraining
+- executable trading assumptions

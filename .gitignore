@@ -14,3 +14,4 @@ data/*
 
 cache/
 *.egg-info/
+artifacts/

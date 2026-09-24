@@ -215,3 +215,75 @@ If evidence is positive, subsequent work may test:
 - fundamentals and other point-in-time information
 - walk-forward retraining
 - executable trading assumptions
+
+## Cross-sectional evaluation
+
+Model predictions are evaluated as cross-sectional equity-ranking signals
+separately for every forecast horizon:
+
+- 1 trading day
+- 5 trading days
+- 10 trading days
+- 20 trading days
+- 60 trading days
+
+On each eligible signal date, securities are ranked independently by predicted
+outperformance probability and assigned to D1 through D10.
+
+The following diagnostics are calculated independently for every
+model / horizon / sample combination:
+
+- equal-weight forward market-relative return for every decile
+- annualised return for every decile
+- annualised volatility for every decile
+- information ratio for every decile
+- Newey-West t-statistic for every decile
+- D10 minus D1 spread
+- separate D10 long-leg and short-D1 contributions
+- cross-sectional Spearman rank information coefficient
+- mean and standard deviation of IC
+- IC information ratio
+- Newey-West IC t-statistic
+- positive-IC hit rate
+- decile-return monotonicity
+- average breadth per decile
+
+HAC / Newey-West inference uses lags corresponding to overlap in the forward
+return horizon:
+
+- 1-day: 0 lags
+- 5-day: 4 lags
+- 10-day: 9 lags
+- 20-day: 19 lags
+- 60-day: 59 lags
+
+A formal Patton-Timmermann monotonic relation test is reserved for the extended
+robustness stage; the initial framework reports the full decile profile and
+Spearman monotonicity diagnostic.
+
+## Indexed decile payoff series
+
+For every model and forecast horizon, indexed payoff series starting at 100 are
+constructed for D1 through D10.
+
+Forward returns longer than one trading day overlap across adjacent signal
+dates. They therefore must not be naively compounded sequentially.
+
+For an h-day forecast horizon, the payoff calculation instead forms h staggered
+sleeves. Each sleeve enters only every h-th signal date, making the forward
+return observations within a sleeve non-overlapping. Capital is allocated
+equally across the sleeves and the sleeve wealth paths are combined into the
+reported index.
+
+A D10-minus-D1 spread-payoff index is also retained as a diagnostic. It is not
+treated as a complete executable long-short backtest. Transaction costs,
+turnover, financing, short borrow and explicit portfolio implementation are
+handled in the subsequent economic layer.
+
+## Test-set discipline
+
+Model and methodology development uses the train and validation samples only.
+
+The 2025 onward test period is not exported by the benchmark dataset builder
+during development. Test-period predictions and cross-sectional diagnostics
+will be generated only after the benchmark specification has been frozen.

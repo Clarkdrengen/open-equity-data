@@ -15,6 +15,15 @@ dependencies = [
     "tenacity",
     "exchange-calendars",
     "pytz",
+    "numpy",
+    "pandas",
+    "scikit-learn",
+    "statsmodels",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
 ]
 
 [tool.setuptools]

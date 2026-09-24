@@ -9,17 +9,38 @@ WITH price_dates AS (
     FROM silver.security_daily_ohlcv
 ),
 
-split_dates AS (
+effective_splits AS (
     SELECT
-        security_id,
-        split_date AS date,
-        split_ratio
-    FROM silver.security_split_event
-    WHERE split_ratio IS NOT NULL
-      AND split_ratio > 0
+        s.security_id,
+        s.split_date AS date,
+
+        CASE
+            WHEN o.security_id IS NOT NULL
+            THEN o.override_split_ratio
+            ELSE s.split_ratio
+        END AS effective_split_ratio
+
+    FROM silver.security_split_event s
+
+    LEFT JOIN silver.corporate_action_override o
+      ON o.security_id = s.security_id
+     AND o.event_date = s.split_date
+
+    WHERE
+        CASE
+            WHEN o.security_id IS NOT NULL
+            THEN o.override_split_ratio
+            ELSE s.split_ratio
+        END IS NOT NULL
+
+      AND
+        CASE
+            WHEN o.security_id IS NOT NULL
+            THEN o.override_split_ratio
+            ELSE s.split_ratio
+        END > 0
 ),
 
--- Include split dates even where there is no OHLCV observation.
 timeline AS (
     SELECT security_id, date
     FROM price_dates
@@ -27,7 +48,7 @@ timeline AS (
     UNION
 
     SELECT security_id, date
-    FROM split_dates
+    FROM effective_splits
 ),
 
 daily AS (
@@ -36,13 +57,13 @@ daily AS (
         t.date,
 
         COALESCE(
-            MAX(s.split_ratio),
+            MAX(s.effective_split_ratio),
             1.0
         ) AS daily_split_ratio
 
     FROM timeline t
 
-    LEFT JOIN split_dates s
+    LEFT JOIN effective_splits s
       ON s.security_id = t.security_id
      AND s.date = t.date
 
@@ -79,7 +100,6 @@ SELECT
 
 FROM factors f
 
--- Final table is on actual market observations only.
 JOIN price_dates p
   ON p.security_id = f.security_id
  AND p.date = f.date;

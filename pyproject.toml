@@ -25,6 +25,9 @@ dependencies = [
 dev = [
     "pytest",
 ]
+tabpfn = [
+    "tabpfn>=9.0.0,<10",
+]
 
 [tool.setuptools]
 package-dir = {"" = "src"}

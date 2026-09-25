@@ -261,3 +261,73 @@ def test_fact_metadata_is_preserved():
         fact.source
         == "filing_inline_xbrl"
     )
+
+
+def test_non_numeric_shares_fact_is_ignored():
+    html = b"""
+    <html>
+    <body>
+    <xbrli:context id="c1">
+      <xbrli:period>
+        <xbrli:instant>2026-06-30</xbrli:instant>
+      </xbrli:period>
+    </xbrli:context>
+
+    <ix:nonNumeric
+      contextRef="c1"
+      name="dei:EntityCommonStockSharesOutstanding">
+      no
+    </ix:nonNumeric>
+
+    <ix:nonFraction
+      contextRef="c1"
+      name="dei:EntityCommonStockSharesOutstanding"
+      scale="0">
+      123456789
+    </ix:nonFraction>
+    </body>
+    </html>
+    """
+
+    facts = extract_shares_outstanding_facts_from_html(
+        html=html,
+        cik="1234",
+        filing_date="2026-08-07",
+        accession_number="test",
+        form="10-K",
+        primary_document="test.htm",
+    )
+
+    assert len(facts) == 1
+    assert facts[0].shares_outstanding == 123_456_789
+
+
+def test_nil_numeric_shares_fact_is_ignored():
+    html = b"""
+    <html>
+    <body>
+    <xbrli:context id="c1">
+      <xbrli:period>
+        <xbrli:instant>2026-06-30</xbrli:instant>
+      </xbrli:period>
+    </xbrli:context>
+
+    <ix:nonFraction
+      contextRef="c1"
+      name="dei:EntityCommonStockSharesOutstanding"
+      xsi:nil="true">
+    </ix:nonFraction>
+    </body>
+    </html>
+    """
+
+    facts = extract_shares_outstanding_facts_from_html(
+        html=html,
+        cik="1234",
+        filing_date="2026-08-07",
+        accession_number="test",
+        form="10-K",
+        primary_document="test.htm",
+    )
+
+    assert facts == []

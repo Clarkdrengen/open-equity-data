@@ -33,6 +33,17 @@ SQL = Path("sql/silver")
 FILES = [
     # Identity-dependent price series
     "create_lineage_ohlcv.sql",
+
+    # Current-lineage coverage and immutable Bronze evidence resolution
+    "create_session_coverage_audit.sql",
+    "create_session_coverage_ranked.sql",
+    "create_daily_coverage.sql",
+    "create_missing_price_queue.sql",
+    "create_external_price_resolution_candidate.sql",
+    "create_external_price_resolution.sql",
+    "create_price_reconciliation.sql",
+    "create_reconciled_ohlcv.sql",
+
     "create_security_daily_ohlcv.sql",
 
     # Corporate actions: splits

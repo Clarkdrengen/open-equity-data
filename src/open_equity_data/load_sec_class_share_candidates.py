@@ -367,28 +367,7 @@ def main() -> None:
             flush=True,
         )
 
-        # Restartable Silver interpretation:
-        # replace only this filing's derived rows.
-        con.execute("""
-            DELETE FROM
-                silver.sec_class_share_candidate
-            WHERE cik = ?
-              AND accession_number = ?
-        """, [
-            cik,
-            accession,
-        ])
-
-        con.execute("""
-            DELETE FROM
-                silver.sec_class_share_filing_audit
-            WHERE cik = ?
-              AND accession_number = ?
-        """, [
-            cik,
-            accession,
-        ])
-
+        transaction_open = False
         try:
             document = get_filing_document(
                 cik=cik,
@@ -521,6 +500,22 @@ def main() -> None:
                     )
                 )
 
+            # Preserve the last successful interpretation if fetching or
+            # parsing fails. Replace both tables atomically only after the
+            # new filing interpretation is ready.
+            con.execute("BEGIN TRANSACTION")
+            transaction_open = True
+
+            con.execute("""
+                DELETE FROM silver.sec_class_share_candidate
+                WHERE cik = ? AND accession_number = ?
+            """, [cik, accession])
+
+            con.execute("""
+                DELETE FROM silver.sec_class_share_filing_audit
+                WHERE cik = ? AND accession_number = ?
+            """, [cik, accession])
+
             if candidate_rows:
                 con.executemany("""
                     INSERT INTO
@@ -582,6 +577,9 @@ def main() -> None:
                 sha256,
             ])
 
+            con.execute("COMMIT")
+            transaction_open = False
+
             print(
                 f"    metadata={len(metadata)} "
                 f"class_facts={len(class_facts)} "
@@ -591,29 +589,36 @@ def main() -> None:
             )
 
         except Exception as exc:
-            con.execute("""
-                INSERT INTO
-                    silver.sec_class_share_filing_audit
-                VALUES (
-                    ?, ?, ?, ?, ?, ?,
-                    ?, ?, ?, ?,
-                    ?, ?, ?
-                )
-            """, [
-                cik,
-                entity_name,
-                filing_date,
-                accession,
-                form,
-                primary_document,
-                0,
-                0,
-                0,
-                0,
-                "error",
-                repr(exc),
-                None,
-            ])
+            if transaction_open:
+                con.execute("ROLLBACK")
+
+            # Keep a prior successful audit and its candidate rows intact.
+            prior_success = con.execute("""
+                SELECT 1 FROM silver.sec_class_share_filing_audit
+                WHERE cik = ? AND accession_number = ?
+                  AND processing_status = 'processed'
+                LIMIT 1
+            """, [cik, accession]).fetchone()
+
+            if prior_success is None:
+                con.execute("""
+                    DELETE FROM silver.sec_class_share_filing_audit
+                    WHERE cik = ? AND accession_number = ?
+                """, [cik, accession])
+
+                con.execute("""
+                    INSERT INTO silver.sec_class_share_filing_audit
+                    VALUES (
+                        ?, ?, ?, ?, ?, ?,
+                        ?, ?, ?, ?,
+                        ?, ?, ?
+                    )
+                """, [
+                    cik, entity_name, filing_date, accession,
+                    form, primary_document,
+                    0, 0, 0, 0,
+                    "error", repr(exc), None,
+                ])
 
             print(
                 f"    ERROR: {exc!r}",

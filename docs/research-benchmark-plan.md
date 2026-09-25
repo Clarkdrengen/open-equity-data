@@ -265,6 +265,37 @@ No model will be judged from accuracy alone.
 
 The first experiment asks whether predictive structure exists at all.
 
+### Fixed RSI(14) comparison
+
+Run a non-fitted technical rule on the same validation export:
+
+```bash
+python -m open_equity_data.research.benchmark_rsi --horizon 1
+```
+
+This reports two pre-specified rank directions: reversal ranks low RSI higher,
+and continuation ranks high RSI higher. It also compares forward relative
+returns on the same dates for RSI below 30 versus above 70. The RSI ranks are
+scores, not calibrated probabilities, so log loss, Brier score and AUC are
+intentionally absent. Outputs include daily IC and decile returns, threshold
+event counts and paired-date Newey–West inference. The analysis uses the
+sampled validation universe and remains a predictive diagnostic without
+trading costs or an executable entry convention. Both directions are reported;
+selecting the better direction after seeing validation requires the untouched
+test period for an honest final assessment.
+
+For a one-day comparison with the conventional baselines and a separately
+saved one-estimator TabPFN MPS pilot:
+
+```bash
+python -m open_equity_data.research.compare_validation --horizon 1
+```
+
+The comparison requires all six outputs on the same full validation export.
+It marks RSI rows as rank scores and leaves probability metrics blank for them.
+The single-estimator TabPFN result is labeled through its run metadata and
+should not be mistaken for the default ensemble configuration.
+
 If evidence is positive, subsequent work may test:
 
 - alternative target definitions and holding-period conventions

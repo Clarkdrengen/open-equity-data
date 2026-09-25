@@ -101,10 +101,11 @@ def fit_predict(
             if using_mps and accelerator_error is not None and isinstance(exc, accelerator_error):
                 raise RuntimeError(
                     "TabPFN failed in PyTorch MPS prediction after "
-                    f"{offset:,} validation rows. Try a CPU pilot: re-export "
-                    "with --tabpfn-train-rows 5000 --validation-rows 5000, "
-                    "then rerun with --device cpu. Record this as a separate "
-                    "pilot; do not compare it with full-validation outputs."
+                    f"{offset:,} validation rows. For a CPU smoke test, export "
+                    "a separate dataset with --tabpfn-train-rows 5000 "
+                    "--validation-rows 5000, then rerun with --device cpu. "
+                    "The small validation sample is unsuitable for decile "
+                    "conclusions; see the benchmark plan for isolated paths."
                 ) from exc
             raise
         expected = min(batch_size, len(x) - offset)

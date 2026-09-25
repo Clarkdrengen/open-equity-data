@@ -254,13 +254,24 @@ def extract_shares_outstanding_facts_from_html(
 
         tag_name = _tag_name(tag)
 
-        if not (
-            tag_name.endswith(
-                "nonfraction"
-            )
-            or tag_name.endswith(
-                "nonnumeric"
-            )
+        # Shares-outstanding concepts are numeric facts.
+        # Do not attempt to interpret ix:nonNumeric facts that
+        # happen to carry the same concept name.
+        if not tag_name.endswith(
+            "nonfraction"
+        ):
+            continue
+
+        # Explicitly nil XBRL facts carry no usable numeric value.
+        nil_value = (
+            tag.get("xsi:nil")
+            or tag.get("nil")
+        )
+
+        if (
+            nil_value is not None
+            and str(nil_value).lower()
+            in {"true", "1"}
         ):
             continue
 
@@ -273,9 +284,15 @@ def extract_shares_outstanding_facts_from_html(
             {},
         )
 
-        shares = _parse_numeric_fact(
-            tag
-        )
+        try:
+            shares = _parse_numeric_fact(
+                tag
+            )
+        except (TypeError, ValueError):
+            # Preserve the filing as source evidence; simply do
+            # not promote an unparseable fact into the structured
+            # shares-outstanding interpretation.
+            continue
 
         taxonomy, concept = (
             name.split(

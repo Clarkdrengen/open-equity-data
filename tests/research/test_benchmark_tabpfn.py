@@ -52,6 +52,8 @@ def test_tabpfn_batches_and_selects_positive_class(monkeypatch):
         @staticmethod
         def create_default_for_version(version, **kwargs):
             assert version == "V3_5"
+            assert kwargs["fit_mode"] == "fit_with_cache"
+            assert kwargs["n_estimators"] == 1
             return FakeModel()
 
     monkeypatch.setitem(sys.modules, "torch", types.SimpleNamespace(
@@ -62,10 +64,14 @@ def test_tabpfn_batches_and_selects_positive_class(monkeypatch):
     monkeypatch.setitem(sys.modules, "tabpfn.constants", types.SimpleNamespace(
         ModelVersion=types.SimpleNamespace(V3_5="V3_5")
     ))
-    probabilities, metadata = fit_predict(train, validation, batch_size=8)
+    probabilities, metadata = fit_predict(
+        train, validation, batch_size=8, fit_mode="fit_with_cache", n_estimators=1
+    )
     assert calls == [8, 8, 5]
     assert np.allclose(probabilities, 0.7)
     assert metadata["model_version"] == "V3_5"
+    assert metadata["fit_mode"] == "fit_with_cache"
+    assert metadata["n_estimators"] == 1
 
 
 def test_mps_accelerator_failure_suggests_separate_cpu_pilot(monkeypatch):

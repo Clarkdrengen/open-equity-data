@@ -38,6 +38,12 @@ VALUES
         'Common Stock',
         'manual_reference_override',
         'Exantas Capital Corp. listed common equity; descriptive provider metadata insufficient.'
+    ),
+    (
+        'KST',
+        'FUND',
+        'manual_reference_override',
+        'Deutsche Strategic Income Trust; closed-end investment fund, not ordinary common equity.'
     );
 
 
@@ -136,19 +142,19 @@ SELECT
 
         WHEN regexp_matches(
             UPPER(act_symbol),
-            '\\.W(S)?$'
+            '\.W(S)?$'
         )
         THEN 'Warrant'
 
         WHEN regexp_matches(
             UPPER(act_symbol),
-            '\\.U$'
+            '\.U$'
         )
         THEN 'Unit'
 
         WHEN regexp_matches(
             UPPER(act_symbol),
-            '\\.R$'
+            '\.R$'
         )
         THEN 'Right'
 
@@ -170,28 +176,64 @@ SELECT
           OR UPPER(security_name) LIKE '%WHEN ISSUED%'
           OR UPPER(security_name) LIKE '%EX-DISTRIBUTION%'
         THEN 'When-Issued'
+        -- Preferred securities.
+        --
+        -- Require explicit security-type wording. Do not classify merely
+        -- because an issuer name contains words such as "Preferred"
+        -- (for example Preferred Bank common stock).
 
-
-        -- Preferred securities
-        WHEN UPPER(security_name) LIKE '%PREFERRED%'
-          OR UPPER(security_name) LIKE '% PFD%'
-          OR UPPER(security_name) LIKE '%PFD %'
+        WHEN (
+                UPPER(security_name) LIKE '%PREFERRED STOCK%'
+             OR UPPER(security_name) LIKE '%PREFERRED SHARE%'
+             OR UPPER(security_name) LIKE '% PFD%'
+             OR UPPER(security_name) LIKE '%PFD %'
+             OR (
+                    UPPER(security_name) LIKE '%DEPOSITARY SHARE%'
+                AND UPPER(security_name) LIKE '%PREFERRED%'
+             )
+        )
+        AND UPPER(security_name) NOT LIKE '%COMMON STOCK%'
         THEN 'Preferred Stock'
 
 
-        -- Warrants / units / rights
-        WHEN UPPER(security_name) LIKE '%WARRANT%'
+        -- Warrants / units / rights.
+        --
+        -- Require explicit instrument wording. Broad substring rules such
+        -- as %RIGHT% misclassify Curtiss-Wright and ADR descriptions that
+        -- merely contain the phrase "right to receive".
+
+        WHEN regexp_matches(
+            UPPER(security_name),
+            '(^| - | )WARRANT(S)?([ ,(]|$)'
+        )
         THEN 'Warrant'
 
-        WHEN UPPER(security_name) LIKE '% UNIT%'
-          OR UPPER(security_name) LIKE '%UNITS%'
+        -- Preferred units are economically preferred securities rather
+        -- than ordinary/common equity.
+        WHEN regexp_matches(
+            UPPER(security_name),
+            'PREFERRED UNIT(S)?([ ,(]|$)'
+        )
+        THEN 'Preferred Stock'
+
+        WHEN regexp_matches(
+            UPPER(security_name),
+            '(^| - | )UNIT(S)?([ ,(]|$)'
+        )
+          OR UPPER(security_name) LIKE '%COMMON UNITS%'
+          OR UPPER(security_name) LIKE '%LIMITED PARTNER INTERESTS%'
+          OR UPPER(security_name) LIKE '%LIMITED PARTNERSHIP UNITS%'
         THEN 'Unit'
 
-        WHEN UPPER(security_name) LIKE '%RIGHT%'
+        WHEN regexp_matches(
+            UPPER(security_name),
+            '(^| - | )RIGHT(S)?([ ,(]|$)'
+        )
         THEN 'Right'
 
 
         -- ETNs / index-linked notes
+
         WHEN UPPER(security_name) LIKE '% ETN%'
           OR UPPER(security_name) LIKE '%ETRACS%'
           OR UPPER(security_name) LIKE '%EXCHANGE TRADED NOTE%'
@@ -213,16 +255,19 @@ SELECT
           OR UPPER(security_name) LIKE '%FIXED-INCOME%'
         THEN 'Notes'
 
+        -- Explicit fund vehicles.
+        --
+        -- Do not treat every "Shares of Beneficial Interest" security as
+        -- a fund: that wording is also used by REITs and other listed
+        -- equity vehicles.
 
-        -- Fund / trust vehicles
-        WHEN UPPER(security_name) LIKE '%FUND%'
-          OR UPPER(security_name) LIKE '%TRUST SHARES%'
-          OR UPPER(security_name)
-                LIKE '%SHARES OF BENEFICIAL INTEREST%'
+        WHEN UPPER(security_name) LIKE '%CLOSED END FUND%'
+          OR UPPER(security_name) LIKE '%CLOSED-END FUND%'
         THEN 'FUND'
 
 
         -- Ordinary/common equity
+
         WHEN UPPER(security_name) LIKE '%COMMON STOCK%'
           OR UPPER(security_name) LIKE '%COMMON SHARE%'
           OR UPPER(security_name) LIKE '%COMMON SHARES%'
@@ -363,19 +408,19 @@ joined AS (
 
             WHEN regexp_matches(
                 UPPER(t.ticker),
-                '\\.W(S)?$'
+                '\.W(S)?$'
             )
             THEN 'Warrant'
 
             WHEN regexp_matches(
                 UPPER(t.ticker),
-                '\\.U$'
+                '\.U$'
             )
             THEN 'Unit'
 
             WHEN regexp_matches(
                 UPPER(t.ticker),
-                '\\.R$'
+                '\.R$'
             )
             THEN 'Right'
 
@@ -462,12 +507,29 @@ joined AS (
 SELECT
     *,
 
+    
     CASE
         WHEN manual_instrument_type IS NOT NULL
         THEN manual_instrument_type
 
         WHEN syntax_instrument_type IS NOT NULL
         THEN syntax_instrument_type
+
+        -- High-confidence structured / explicit Bronze evidence vetoes an
+        -- erroneous EODHD Common Stock label.
+        WHEN bronze_instrument_type IN (
+            'Warrant',
+            'Right',
+            'Unit',
+            'ETF',
+            'ETN',
+            'Test Issue',
+            'When-Issued',
+            'Preferred Stock',
+            'Notes',
+            'FUND'
+        )
+        THEN bronze_instrument_type
 
         WHEN exact_n_types = 1
         THEN exact_instrument_type
@@ -480,6 +542,7 @@ SELECT
 
         ELSE NULL
     END AS resolved_instrument_type,
+
 
 
     CASE
@@ -520,8 +583,23 @@ SELECT
         WHEN manual_instrument_type IS NOT NULL
         THEN 'resolved_manual_override'
 
+        
         WHEN syntax_instrument_type IS NOT NULL
         THEN 'resolved_symbol_syntax'
+
+        WHEN bronze_instrument_type IN (
+            'Warrant',
+            'Right',
+            'Unit',
+            'ETF',
+            'ETN',
+            'Test Issue',
+            'When-Issued',
+            'Preferred Stock',
+            'Notes',
+            'FUND'
+        )
+        THEN 'resolved_bronze_explicit_noncommon'
 
         WHEN exact_n_types = 1
         THEN 'resolved_eodhd_exact'
@@ -531,6 +609,7 @@ SELECT
 
         WHEN bronze_instrument_type IS NOT NULL
         THEN 'resolved_bronze_symbol'
+
 
         WHEN canonical_n_types = 1
         THEN 'resolved_eodhd_canonical'

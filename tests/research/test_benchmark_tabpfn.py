@@ -97,5 +97,5 @@ def test_mps_accelerator_failure_suggests_separate_cpu_pilot(monkeypatch):
     monkeypatch.setitem(sys.modules, "tabpfn.constants", types.SimpleNamespace(
         ModelVersion=types.SimpleNamespace(V3_5="V3_5")
     ))
-    with pytest.raises(RuntimeError, match="separate pilot"):
+    with pytest.raises(RuntimeError, match="CPU smoke test"):
         fit_predict(train, validation, device="auto", batch_size=8)

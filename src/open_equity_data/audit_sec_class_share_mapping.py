@@ -26,6 +26,29 @@ class Candidate:
     symbol_mapping_status: str
 
 
+# Audited issuer-specific ticker transitions. These produce diagnostic
+# possible symbols only; they do not create a resolved SEC observation.
+# Wiley announced that the change was effective 2022-04-01:
+# https://newsroom.wiley.com/press-releases/press-release-details/2022/Wiley-Announces-NYSE-Ticker-Symbol-Change-to-WLY-and-WLYB/default.aspx
+# The SEC 2020 10-K shows JW.A/JW.B; its 2024 10-Q shows WLY/WLYB.
+# https://www.sec.gov/Archives/edgar/data/107140/000010714020000034/form10k.htm
+# https://www.sec.gov/Archives/edgar/data/107140/000010714024000029/jwa-20240131.htm
+WILEY_CHANGE_DATE = date(2022, 4, 1)
+WILEY_CLASS_SYMBOLS = {
+    "us-gaap:CommonClassAMember": ("JW.A", "WLY"),
+    "us-gaap:CommonClassBMember": ("JW.B", "WLYB"),
+}
+
+
+def documented_transition_symbol(row: Candidate) -> str | None:
+    if row.cik != "0000107140":
+        return None
+    symbols = WILEY_CLASS_SYMBOLS.get(row.class_member)
+    if symbols is None:
+        return None
+    return symbols[0] if row.filing_date < WILEY_CHANGE_DATE else symbols[1]
+
+
 def classify_unmapped(rows: list[Candidate]) -> list[tuple[Candidate, str, str | None]]:
     """Return (fact, evidence status, possible symbol) for unmapped facts.
 
@@ -41,6 +64,11 @@ def classify_unmapped(rows: list[Candidate]) -> list[tuple[Candidate, str, str |
     result = []
     for row in rows:
         if row.symbol_mapping_status != "no_trading_symbol":
+            continue
+
+        documented = documented_transition_symbol(row)
+        if documented is not None:
+            result.append((row, "documented_ticker_change", documented))
             continue
 
         observations = history[(row.cik, row.class_member)]

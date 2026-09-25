@@ -226,6 +226,22 @@ statistics. Treat this as an execution check, not evidence of predictive or
 economic performance. A Prior Labs API key is for its hosted API client;
 the local `tabpfn` package uses a separate model access flow.
 
+On a Mac with sufficient unified memory, an accelerated validation run can
+cache training computations across prediction batches:
+
+```bash
+python -m open_equity_data.research.benchmark_tabpfn \
+  --horizon 1 --device mps --fit-mode fit_with_cache \
+  --batch-size 8192 --n-estimators 1 \
+  --output-dir artifacts/research/benchmark_v1/tabpfn_mps_pilot
+```
+
+This uses the full exported validation sample. The single-estimator setting is
+a speed pilot with lower ensemble diversity, so its outputs have their own
+directory and metadata. Cache mode uses more device memory; if fit fails for
+memory, reduce the TabPFN training sample using a separate dataset export.
+This setting does not fix an MPS accelerator error in PyTorch.
+
 ## Evaluation
 
 Primary statistical metrics:

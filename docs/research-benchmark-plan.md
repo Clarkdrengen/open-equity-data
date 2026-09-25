@@ -208,18 +208,22 @@ slow; `--validation-rows` changes the common validation export for all models.
 TabPFN may fetch its model weights and require license acceptance on first use.
 Do not inspect or export the 2025+ test period during model development.
 
-If PyTorch MPS fails during prediction on Apple Silicon, run a smaller CPU pilot:
+If PyTorch MPS fails during prediction on Apple Silicon, run an isolated CPU
+smoke test:
 
 ```bash
 python -m open_equity_data.research.benchmark_dataset \
-  --tabpfn-train-rows 5000 --validation-rows 5000
+  --tabpfn-train-rows 5000 --validation-rows 5000 \
+  --output-dir artifacts/research/benchmark_v1/cpu_smoke/datasets
 python -m open_equity_data.research.benchmark_tabpfn \
-  --horizon 1 --device cpu --batch-size 100
+  --horizon 1 --device cpu --batch-size 100 \
+  --dataset-dir artifacts/research/benchmark_v1/cpu_smoke/datasets \
+  --output-dir artifacts/research/benchmark_v1/cpu_smoke/results
 ```
 
-Re-exporting overwrites the existing validation export, so do not compare this
-pilot to earlier full-validation results. Retain each dataset size and device in
-the research record. A Prior Labs API key is only for its hosted API client;
+The 5,000-row validation sample is too sparse on each date for reliable decile
+statistics. Treat this as an execution check, not evidence of predictive or
+economic performance. A Prior Labs API key is for its hosted API client;
 the local `tabpfn` package uses a separate model access flow.
 
 ## Evaluation

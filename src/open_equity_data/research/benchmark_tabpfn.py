@@ -89,7 +89,25 @@ def fit_predict(
     chunks = []
     t1 = time.monotonic()
     for offset in range(0, len(x), batch_size):
-        chunk = np.asarray(model.predict_proba(x[offset:offset + batch_size]))
+        try:
+            chunk = np.asarray(model.predict_proba(x[offset:offset + batch_size]))
+        except Exception as exc:
+            accelerator_error = getattr(torch, "AcceleratorError", None)
+            using_mps = device == "mps" or (
+                device == "auto" and not torch.cuda.is_available()
+                and hasattr(torch.backends, "mps")
+                and torch.backends.mps.is_available()
+            )
+            if using_mps and accelerator_error is not None and isinstance(exc, accelerator_error):
+                raise RuntimeError(
+                    "TabPFN failed in PyTorch MPS prediction after "
+                    f"{offset:,} validation rows. For a CPU smoke test, export "
+                    "a separate dataset with --tabpfn-train-rows 5000 "
+                    "--validation-rows 5000, then rerun with --device cpu. "
+                    "The small validation sample is unsuitable for decile "
+                    "conclusions; see the benchmark plan for isolated paths."
+                ) from exc
+            raise
         expected = min(batch_size, len(x) - offset)
         if chunk.shape != (expected, len(classes)):
             raise ValueError(f"Unexpected TabPFN probability shape: {chunk.shape}")

@@ -66,3 +66,36 @@ def test_tabpfn_batches_and_selects_positive_class(monkeypatch):
     assert calls == [8, 8, 5]
     assert np.allclose(probabilities, 0.7)
     assert metadata["model_version"] == "V3_5"
+
+
+def test_mps_accelerator_failure_suggests_separate_cpu_pilot(monkeypatch):
+    train, validation = split_frames()
+
+    class FakeAcceleratorError(Exception):
+        pass
+
+    class FakeModel:
+        classes_ = np.array([0, 1])
+
+        def fit(self, x, y):
+            pass
+
+        def predict_proba(self, x):
+            raise FakeAcceleratorError("device failed")
+
+    class FakeClassifier:
+        @staticmethod
+        def create_default_for_version(version, **kwargs):
+            return FakeModel()
+
+    monkeypatch.setitem(sys.modules, "torch", types.SimpleNamespace(
+        AcceleratorError=FakeAcceleratorError,
+        cuda=types.SimpleNamespace(is_available=lambda: False),
+        backends=types.SimpleNamespace(mps=types.SimpleNamespace(is_available=lambda: True)),
+    ))
+    monkeypatch.setitem(sys.modules, "tabpfn", types.SimpleNamespace(TabPFNClassifier=FakeClassifier))
+    monkeypatch.setitem(sys.modules, "tabpfn.constants", types.SimpleNamespace(
+        ModelVersion=types.SimpleNamespace(V3_5="V3_5")
+    ))
+    with pytest.raises(RuntimeError, match="CPU smoke test"):
+        fit_predict(train, validation, device="auto", batch_size=8)

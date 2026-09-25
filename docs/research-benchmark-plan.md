@@ -183,6 +183,31 @@ Initial models:
 TabPFN will initially be trained on a manageable temporally representative
 training sample rather than the complete multi-million-row panel.
 
+### Running the validation benchmark
+
+Export model-ready data, then run the conventional models and TabPFN separately:
+
+```bash
+python -m open_equity_data.research.benchmark_dataset
+python -m open_equity_data.research.benchmark_models
+python -m pip install -e '.[tabpfn]'
+python -m open_equity_data.research.benchmark_tabpfn
+```
+
+For a smaller initial experiment, pass `--horizon 1` to either model runner.
+TabPFN uses `train_tabpfn.parquet`; the conventional models use
+`train_large.parquet`. All models use the same validation export and evaluation
+functions. Outputs appear in `artifacts/research/benchmark_v1/baselines/`.
+The separate `tabpfn_validation_summary.csv` records its five horizons; each
+model/horizon also retains predictions, metadata, and detailed diagnostics.
+
+The default 100,000-row TabPFN training sample requires a suitable accelerator.
+For a CPU pilot, re-export with `--tabpfn-train-rows 5000` before running the
+TabPFN command. CPU inference over the default 250,000 validation rows can be
+slow; `--validation-rows` changes the common validation export for all models.
+TabPFN may fetch its model weights and require license acceptance on first use.
+Do not inspect or export the 2025+ test period during model development.
+
 ## Evaluation
 
 Primary statistical metrics:

@@ -53,9 +53,15 @@ def fit_predict(
     *,
     device: str = "auto",
     batch_size: int = 1000,
+    fit_mode: str = "fit_preprocessors",
+    n_estimators: int | None = None,
 ) -> tuple[np.ndarray, dict]:
     if batch_size < 1:
         raise ValueError("batch_size must be positive")
+    if fit_mode not in {"fit_preprocessors", "fit_with_cache"}:
+        raise ValueError("fit_mode must be fit_preprocessors or fit_with_cache")
+    if n_estimators is not None and n_estimators < 1:
+        raise ValueError("n_estimators must be positive")
     try:
         import torch
         from tabpfn import TabPFNClassifier
@@ -74,9 +80,10 @@ def fit_predict(
             )
 
     t0 = time.monotonic()
-    model = TabPFNClassifier.create_default_for_version(
-        ModelVersion.V3_5, device=device, random_state=20260924
-    )
+    model_kwargs = {"device": device, "random_state": 20260924, "fit_mode": fit_mode}
+    if n_estimators is not None:
+        model_kwargs["n_estimators"] = n_estimators
+    model = TabPFNClassifier.create_default_for_version(ModelVersion.V3_5, **model_kwargs)
     model.fit(feature_matrix(train), target_vector(train))
     fit_seconds = time.monotonic() - t0
 
@@ -120,6 +127,8 @@ def fit_predict(
         "model_version": "V3_5",
         "device": device,
         "batch_size": batch_size,
+        "fit_mode": fit_mode,
+        "n_estimators": n_estimators if n_estimators is not None else "auto",
         "train_rows": len(train),
         "validation_rows": len(validation),
         "train_positive_rate": float(target_vector(train).mean()),
@@ -135,6 +144,8 @@ def run_horizon(
     *,
     device: str = "auto",
     batch_size: int = 1000,
+    fit_mode: str = "fit_preprocessors",
+    n_estimators: int | None = None,
 ) -> dict:
     if horizon not in HORIZONS:
         raise ValueError(f"Unsupported horizon: {horizon}")
@@ -143,7 +154,8 @@ def run_horizon(
     validation = load_parquet(source / "validation.parquet")
     validate_splits(train, validation)
     probabilities, metadata = fit_predict(
-        train, validation, device=device, batch_size=batch_size
+        train, validation, device=device, batch_size=batch_size,
+        fit_mode=fit_mode, n_estimators=n_estimators,
     )
     predictions = prediction_frame(validation, probabilities, MODEL_NAME, horizon)
     summary = evaluate_and_persist(predictions, output_dir, MODEL_NAME, horizon)
@@ -158,6 +170,11 @@ def main() -> None:
     parser.add_argument("--horizon", type=int, choices=HORIZONS)
     parser.add_argument("--device", default="auto")
     parser.add_argument("--batch-size", type=int, default=1000)
+    parser.add_argument(
+        "--fit-mode", choices=("fit_preprocessors", "fit_with_cache"),
+        default="fit_preprocessors",
+    )
+    parser.add_argument("--n-estimators", type=int)
     args = parser.parse_args()
     horizons = (args.horizon,) if args.horizon else HORIZONS
     summaries = []
@@ -166,6 +183,7 @@ def main() -> None:
         summaries.append(run_horizon(
             horizon, args.dataset_dir, args.output_dir,
             device=args.device, batch_size=args.batch_size,
+            fit_mode=args.fit_mode, n_estimators=args.n_estimators,
         ))
     result = pd.DataFrame(summaries)
     save_csv(result, args.output_dir / "tabpfn_validation_summary.csv")

@@ -50,3 +50,18 @@ def test_changed_symbol_is_not_carried_across_history():
     assert classify_unmapped(rows)[0][1:] == (
         "multiple_historical_symbols", None
     )
+
+
+def test_wiley_documented_ticker_change_is_date_bound():
+    rows = [
+        candidate("us-gaap:CommonClassAMember", "2022-03-31", cik="0000107140"),
+        candidate("us-gaap:CommonClassBMember", "2022-03-31", cik="0000107140"),
+        candidate("us-gaap:CommonClassAMember", "2022-04-01", cik="0000107140"),
+        candidate("us-gaap:CommonClassBMember", "2022-04-01", cik="0000107140"),
+    ]
+    assert [(status, symbol) for _, status, symbol in classify_unmapped(rows)] == [
+        ("documented_ticker_change", "JW.A"),
+        ("documented_ticker_change", "JW.B"),
+        ("documented_ticker_change", "WLY"),
+        ("documented_ticker_change", "WLYB"),
+    ]

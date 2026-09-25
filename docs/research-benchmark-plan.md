@@ -208,6 +208,20 @@ slow; `--validation-rows` changes the common validation export for all models.
 TabPFN may fetch its model weights and require license acceptance on first use.
 Do not inspect or export the 2025+ test period during model development.
 
+If PyTorch MPS fails during prediction on Apple Silicon, run a smaller CPU pilot:
+
+```bash
+python -m open_equity_data.research.benchmark_dataset \
+  --tabpfn-train-rows 5000 --validation-rows 5000
+python -m open_equity_data.research.benchmark_tabpfn \
+  --horizon 1 --device cpu --batch-size 100
+```
+
+Re-exporting overwrites the existing validation export, so do not compare this
+pilot to earlier full-validation results. Retain each dataset size and device in
+the research record. A Prior Labs API key is only for its hosted API client;
+the local `tabpfn` package uses a separate model access flow.
+
 ## Evaluation
 
 Primary statistical metrics:

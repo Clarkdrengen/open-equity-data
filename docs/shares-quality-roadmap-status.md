@@ -37,6 +37,22 @@ the full-load and Silver-row coverage figures above serve that purpose.
 
 ## Next implementation gate
 
+First run the read-only issue-share impact audit against the current local
+DuckDB and paste its JSON output into the discussion:
+
+```bash
+python -m open_equity_data.audit_issue_share_resolution_impact
+```
+
+It partitions all primary-exchange PIT issue-days into co-observed multi-issue
+candidates, span-only candidates, identity-ambiguous rows, and other EODHD
+available/unavailable rows. It cross-tabulates EODHD PIT status with whether
+an SEC fact uniquely symbol-mapped in its own filing was filed by that date.
+The candidate detector uses current SEC ticker/CIK evidence and overlapping
+issue spans; these figures are **impact screening**, not validated historical
+issuer/class assignments or usable SEC share counts. This query does not
+make an API request or change the database.
+
 Reconcile the candidate issuer denominator and approve class-to-security
 resolutions only from dated, auditable evidence. Then build the SEC overlay
 with explicit fallback to EODHD totals for ordinary single-listed issuers,

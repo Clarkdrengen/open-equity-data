@@ -24,8 +24,11 @@ COMPANYFACTS_CACHE_DIR = Path(
     "data/external/sec/companyfacts"
 )
 
-FILINGS_CACHE_DIR = Path(
-    "data/external/sec/filings"
+# Unlike an interactive shell's working directory, the installed source
+# location is stable when this package is used from a repository subfolder.
+FILINGS_CACHE_DIR = (
+    Path(__file__).resolve().parents[2]
+    / "data/external/sec/filings"
 )
 
 TICKER_CACHE_PATH = Path(

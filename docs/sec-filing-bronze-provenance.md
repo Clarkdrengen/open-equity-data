@@ -34,6 +34,11 @@ audits, uses cached filings where present, downloads missing documents, and
 checks bytes against the audit's recorded hash. `HASH MISMATCH` and `ERROR`
 rows remain unresolved; no Silver interpretation is changed. Set
 `SEC_USER_AGENT` if the cache lacks documents and the SEC must be queried.
+The filing cache is anchored to the repository rather than the terminal's
+working directory. Three consecutive hash mismatches stop the job with
+diagnostics: expected/actual hash, byte length, cache path, access route, and
+the first bytes of the response. Do not override the hash check to make a
+backfill pass.
 Run `python -m open_equity_data.load_sec_class_share_candidates` for new
 candidate filings; it retains Bronze before parsing. The Silver tables are
 rebuilt per accession only after parsing succeeds.

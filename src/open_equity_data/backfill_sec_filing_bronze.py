@@ -26,6 +26,7 @@ def main() -> None:
     missing = 0
     changed = 0
     errors = 0
+    consecutive_mismatches = 0
     for i, (cik, accession, primary, form, filed, expected) in enumerate(rows, 1):
         if expected is None:
             missing += 1
@@ -41,8 +42,23 @@ def main() -> None:
             document = get_filing_document(cik, accession, primary)
             if document["sha256"] != expected:
                 changed += 1
-                print(f"HASH MISMATCH {cik} {accession} {primary}", flush=True)
+                consecutive_mismatches += 1
+                print(
+                    f"HASH MISMATCH {cik} {accession} {primary} "
+                    f"expected={expected} actual={document['sha256']} "
+                    f"bytes={len(document['content'])} "
+                    f"access={document['source_access']} "
+                    f"cache={document['cache_path']} "
+                    f"prefix={document['content'][:80]!r}",
+                    flush=True,
+                )
+                if consecutive_mismatches >= 3:
+                    print("STOPPED after three consecutive mismatches; "
+                          "inspect the source bytes before continuing.", flush=True)
+                    con.close()
+                    raise SystemExit(2)
                 continue
+            consecutive_mismatches = 0
             con.execute("BEGIN TRANSACTION")
             try:
                 retain_document(

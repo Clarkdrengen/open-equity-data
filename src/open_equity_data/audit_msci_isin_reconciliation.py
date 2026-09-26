@@ -1,8 +1,7 @@
-"""Profile an external monthly cap file and compare names by ISIN, read-only.
+"""Profile Bronze-derived Silver MSCI rows and compare names by ISIN.
 
 The supplied file's units and provenance are not asserted by this program.
-It preserves original names; text matching is diagnostic, never an identity
-approval. Nothing is loaded into Bronze or Silver.
+Text matching is diagnostic, never an identity approval.
 """
 
 from __future__ import annotations
@@ -46,29 +45,29 @@ def normalized_name(name: str) -> str:
     return re.sub(r"[^A-Z0-9]", "", name.upper())
 
 
-def read_panel(path: Path):
+def read_panel(con, digest: str):
     histories: dict[str, IsinHistory] = defaultdict(IsinHistory)
     counters: Counter = Counter()
     invalid: Counter = Counter()
     seen: dict[tuple[str, str], tuple[str, float]] = {}
     duplicate_rows = []
-    with path.open(encoding="utf-8-sig", newline="") as source:
-        reader = csv.reader(source)
-        header = next(reader)
-        if header != ["", "Date", "ISIN", "CompanyName", "MktCap"]:
-            raise ValueError(f"Unexpected CSV columns: {header}")
-        for line_number, row in enumerate(reader, 2):
+    reader = con.execute("""
+        SELECT source_row_number, raw_date, raw_isin, raw_company_name,
+               raw_mktcap, field_count, parse_status
+        FROM silver.msci_usa_observation
+        WHERE source_sha256 = ? ORDER BY source_row_number
+    """, [digest]).fetchall()
+    for line_number, date, raw_isin, name, raw_cap, width, status in reader:
             counters["raw_rows"] += 1
-            if len(row) not in (5, 6):
+            if width not in (5, 6):
                 counters["unexpected_width"] += 1
                 continue
-            if len(row) == 6:
+            if width == 6:
                 counters["unquoted_name_commas"] += 1
-            _, date, isin, *tail = row
-            isin = isin.strip().upper()
-            name = ",".join(tail[:-1]).strip()
-            raw_cap = tail[-1].strip()
-            if isin == "NA" and name == "NA" and raw_cap == "NA":
+            isin = (raw_isin or "").strip().upper()
+            name = (name or "").strip()
+            raw_cap = (raw_cap or "").strip()
+            if status == "na_padding":
                 counters["na_padding_rows"] += 1
                 continue
             try:
@@ -137,12 +136,24 @@ def references(con):
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--msci-csv", type=Path, required=True)
+    parser.add_argument("--source-sha256", help="Required if multiple MSCI source files are archived")
     parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT)
     parser.add_argument("--profile-only", action="store_true",
-                        help="Inspect the supplied CSV without opening the project database")
+                        help="Skip EODHD/project reference comparison")
     args = parser.parse_args()
-    histories, counts, invalid, duplicates = read_panel(args.msci_csv)
+    with connect(read_only=True) as con:
+        if args.source_sha256:
+            digest = args.source_sha256
+        else:
+            sources = con.execute("SELECT source_sha256 FROM bronze.msci_usa_source_file").fetchall()
+            if len(sources) != 1:
+                raise ValueError("Specify --source-sha256 when Bronze holds multiple source files")
+            digest = sources[0][0]
+        histories, counts, invalid, duplicates = read_panel(con, digest)
+        if not counts["raw_rows"]:
+            raise ValueError("No Silver rows for source SHA-256; run build_msci_usa_silver")
+        if not args.profile_only:
+            names, tickers, security_ids = references(con)
     args.output_dir.mkdir(parents=True, exist_ok=True)
     profile = args.output_dir / "msci_isin_name_profile.csv"
     write_csv(profile,
@@ -163,8 +174,6 @@ def main() -> None:
     print(f"Saved {profile}")
     if args.profile_only:
         return
-    with connect(read_only=True) as con:
-        names, tickers, security_ids = references(con)
     compared = args.output_dir / "msci_vs_project_isin_names.csv"
     status_counts = Counter()
     def comparisons():

@@ -3,6 +3,8 @@ import duckdb
 from open_equity_data.audit_msci_isin_reconciliation import (
     read_panel, references, valid_isin,
 )
+from open_equity_data.load_msci_usa_bronze import archive
+from open_equity_data.build_msci_usa_silver import build
 
 
 def test_unquoted_name_comma_and_duplicate_conflict_are_visible(tmp_path):
@@ -15,7 +17,19 @@ def test_unquoted_name_comma_and_duplicate_conflict_are_visible(tmp_path):
         "4,2018-09-30,NA,NA,NA\n"
         "5,2018-09-30,,MISSING,30\n"
     )
-    history, counts, invalid, duplicates = read_panel(source)
+    raw = source.read_bytes()
+    con = duckdb.connect()
+    digest = archive(con, source)
+    assert bytes(con.execute("SELECT raw_file_bytes FROM bronze.msci_usa_source_file").fetchone()[0]) == raw
+    assert archive(con, source) == digest
+    assert con.execute("SELECT COUNT(*) FROM bronze.msci_usa_source_file").fetchone()[0] == 1
+    assert build(con) == (digest, 5)
+    assert build(con) == (digest, 5)
+    assert con.execute("SELECT COUNT(*) FROM silver.msci_usa_observation").fetchone()[0] == 5
+    assert con.execute("""
+        SELECT raw_company_name FROM silver.msci_usa_observation WHERE source_row_number = 2
+    """).fetchone()[0] == 'BECTON, DICKINSON'
+    history, counts, invalid, duplicates = read_panel(con, digest)
     assert valid_isin("US0758871091")
     assert not valid_isin("06181104W")
     assert counts["unquoted_name_commas"] == 1

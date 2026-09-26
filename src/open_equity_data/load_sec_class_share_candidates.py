@@ -15,6 +15,10 @@ from open_equity_data.sec_shares import (
     extract_context_metadata,
     extract_shares_outstanding_facts_from_html,
 )
+from open_equity_data.sec_filing_bronze import (
+    create_tables as create_bronze_tables,
+    retain_document,
+)
 
 
 FORMS = {
@@ -194,6 +198,7 @@ def create_tables(con) -> None:
 def main() -> None:
     con = connect()
 
+    create_bronze_tables(con)
     create_tables(con)
 
     issuer_rows = con.execute("""
@@ -377,7 +382,23 @@ def main() -> None:
             )
 
             html = document["content"]
-            sha256 = document["sha256"]
+            # Commit source evidence independently: a parser failure must
+            # never erase the raw document needed to diagnose or replay it.
+            con.execute("BEGIN TRANSACTION")
+            try:
+                sha256 = retain_document(
+                    con,
+                    cik=cik,
+                    accession_number=accession,
+                    primary_document=primary_document,
+                    form=form,
+                    filing_date=filing_date,
+                    document=document,
+                )
+                con.execute("COMMIT")
+            except Exception:
+                con.execute("ROLLBACK")
+                raise
 
             metadata = (
                 extract_class_security_metadata(

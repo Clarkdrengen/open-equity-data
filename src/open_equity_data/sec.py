@@ -325,10 +325,8 @@ def get_filing_document(
         f"{primary_document}"
     )
 
-    if (
-        not cache_path.exists()
-        or refresh
-    ):
+    cache_hit = cache_path.exists() and not refresh
+    if not cache_hit:
         with httpx.Client(
             headers=_headers(),
             timeout=30.0,
@@ -359,6 +357,9 @@ def get_filing_document(
 
         "content":
             content,
+
+        "source_access":
+            "local_cache" if cache_hit else "sec_archive_download",
     }
 
 

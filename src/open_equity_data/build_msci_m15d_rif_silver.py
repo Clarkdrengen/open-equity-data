@@ -46,7 +46,7 @@ def observations(raw_archive: bytes, digest: str):
                     continue
                 seen_data = True
                 fields = line.split("|")[1:]
-                if fields and not fields[-1].strip():
+                if len(fields) == len(definitions) + 1 and not fields[-1].strip():
                     fields.pop()
                 if not REQUIRED.issubset(definitions.values()):
                     raise ValueError("Missing required RIF dictionary fields")

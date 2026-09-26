@@ -18,7 +18,7 @@ FIELDS = [
 ]
 
 
-def fixture_zip():
+def fixture_zip(blank_final_field=False):
     definitions = [
         f'# {i:2d} {key.replace("_", " "):<33} {key:<30} '
         f'{"D" if i == 1 else "S" if i == 2 else "N"} {16:3d} {4:2d}'.ljust(78)
@@ -27,8 +27,10 @@ def fixture_zip():
     values = ['20091231', 'ACME CLASS A', '12345', '100', '200', '1',
               '1.0000', '1.0000', '0', '1', '0', '0', '0', '0.8000',
               '1000000.0000', '1200000.0000', '0']
+    if blank_final_field:
+        values[-1] = ''
     data = ('*\r\n' + '\r\n'.join(definitions) + '\r\n' +
-            '|' + '|'.join(values) + '|\r\n').encode('latin-1')
+            '|' + '|'.join(values) + ('\r\n' if blank_final_field else '|\r\n')).encode('latin-1')
     out = BytesIO()
     with ZipFile(out, 'w') as z:
         z.writestr('sample_m15d.extension', data)
@@ -52,3 +54,9 @@ def test_exact_zip_in_bronze_and_security_shares_derived_in_silver(tmp_path):
         SELECT msci_security_code, shares_today, closing_shares
         FROM silver.msci_m15d_security_observation
     ''').fetchone() == ('200', 1_000_000.0, 1_200_000.0)
+
+
+def test_blank_last_m15d_field_is_not_removed():
+    rows = list(observations(fixture_zip(blank_final_field=True), 'source'))
+    assert len(rows) == 1
+    assert rows[0][-3:] == (1_000_000.0, 1_200_000.0, 'shares_present')

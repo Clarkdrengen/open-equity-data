@@ -8,9 +8,11 @@ from open_equity_data.build_msci_m15d_rif_silver import observations
 from open_equity_data.load_msci_m15d_rif_bronze import archive
 
 
-def rif_zip():
+def rif_zip(blank_last_field=False):
     keys = ['calc_date', 'security_name', 'msci_timeseries_code',
             'msci_issuer_code', 'msci_security_code', 'sedol', 'cusip', 'isin']
+    if blank_last_field:
+        keys.append('RIC')
     definitions = [
         f'# {i:2d} {key.replace("_", " "):<33} {key:<30} '
         f'{"D" if i == 1 else "S" if i in (2, 6, 7, 8) else "N"} {12:3d} {0:2d}'.ljust(78)
@@ -18,8 +20,10 @@ def rif_zip():
     ]
     values = ['20180930', 'ACME CLASS A', '12345', '100', '200', '', '',
               'US0378331005']
+    if blank_last_field:
+        values.append('')
     payload = ('*\r\n' + '\r\n'.join(definitions) + '\r\n' +
-               '|' + '|'.join(values) + '|\r\n').encode('latin-1')
+               '|' + '|'.join(values) + ('\r\n' if blank_last_field else '|\r\n')).encode('latin-1')
     out = BytesIO()
     with ZipFile(out, 'w') as z:
         z.writestr('m15d_rif', payload)
@@ -68,6 +72,12 @@ def test_rif_exact_archive_and_name_isin_price_match(tmp_path):
         FROM silver.msci_m15d_price_overlap_candidate
     ''').fetchone() == ('US0378331005', 1000000.0, 1200000.0,
                       __import__('datetime').date(2018, 9, 28))
+
+
+def test_blank_last_rif_field_is_not_removed():
+    rows = list(observations(rif_zip(blank_last_field=True), 'source'))
+    assert len(rows) == 1
+    assert rows[0][-2:] == ('', 'valid_isin')
 
 
 def test_name_disagreement_is_reported_without_approving_identity():

@@ -1,4 +1,5 @@
 from datetime import date
+import hashlib
 
 import duckdb
 
@@ -53,7 +54,10 @@ def test_failed_retry_preserves_processed_filing(tmp_path, monkeypatch):
     monkeypatch.setattr(
         loader,
         "get_filing_document",
-        lambda **kwargs: {"content": HTML, "sha256": "original"},
+        lambda **kwargs: {
+            "content": HTML,
+            "sha256": hashlib.sha256(HTML).hexdigest(),
+        },
     )
     loader.main()
 
@@ -64,12 +68,26 @@ def test_failed_retry_preserves_processed_filing(tmp_path, monkeypatch):
     loader.main()
 
     con = duckdb.connect(database)
+    digest = hashlib.sha256(HTML).hexdigest()
     assert con.execute("""
         SELECT trading_symbol, shares_outstanding, source_document_sha256
         FROM silver.sec_class_share_candidate
-    """).fetchall() == [("AAA", 123.0, "original")]
+    """).fetchall() == [("AAA", 123.0, digest)]
     assert con.execute("""
         SELECT processing_status, source_document_sha256
         FROM silver.sec_class_share_filing_audit
-    """).fetchall() == [("processed", "original")]
+    """).fetchall() == [("processed", digest)]
+    assert con.execute("""
+        SELECT raw_document, content_length_bytes
+        FROM bronze.sec_filing_document
+    """).fetchall() == [(HTML, len(HTML))]
+    assert con.execute("""
+        SELECT cik, accession_number, primary_document, source_url,
+               source_system, source_document_sha256
+        FROM bronze.sec_filing_document_observation
+    """).fetchall() == [(
+        "0000000001", "0000000001-26-000001", "example.htm",
+        "https://www.sec.gov/Archives/edgar/data/1/000000000126000001/example.htm",
+        "SEC EDGAR Archives", digest,
+    )]
     con.close()

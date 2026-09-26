@@ -1,5 +1,13 @@
 # PIT share carry sensitivity
 
+**Validation failure:** The full-universe top-issue review found impossible
+market caps (including GLSPT near $169 trillion, NVDA near $32 trillion,
+and NFLX near $4–5 trillion). The derived market-cap and weighted-return
+candidate tables and index must not be used as economic results. Run
+`python -m open_equity_data.audit_market_cap_outliers` to inspect the exact
+price, Bronze EODHD share observation, split multiplier, and security
+classification for representative rows before choosing a correction.
+
 `silver.security_daily_share_carry_candidate` retains the original EODHD
 quarterly share count, fiscal period date, filing date, age, and source. It
 re-expresses the filed count in shares on each market date using the ratio of

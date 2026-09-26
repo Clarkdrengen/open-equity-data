@@ -40,7 +40,8 @@ def test_rif_exact_archive_and_name_isin_price_match(tmp_path):
         SELECT DATE '2018-09-30' AS observation_date,
                '200' AS msci_security_code, 'ACME CLASS A' AS security_name,
                '100' AS msci_issuer_code, '12345' AS msci_timeseries_code,
-               1000000.0 AS shares_today, 1200000.0 AS closing_shares
+               1000000.0 AS shares_today, 1200000.0 AS closing_shares,
+               '0.8000' AS scap_fif_raw, '1.0000' AS historical_gimi_fif_raw
     ''')
     con.execute('''
         CREATE TABLE silver.msci_m15d_rif_observation AS
@@ -77,7 +78,8 @@ def test_name_disagreement_is_reported_without_approving_identity():
         SELECT DATE '2018-09-30' AS observation_date, '200' AS msci_security_code,
                'ACME' AS security_name, '100' AS msci_issuer_code,
                '12345' AS msci_timeseries_code, 100.0 AS shares_today,
-               100.0 AS closing_shares
+               100.0 AS closing_shares, '0.8000' AS scap_fif_raw,
+               '1.0000' AS historical_gimi_fif_raw
     ''')
     con.execute('''
         CREATE TABLE silver.msci_m15d_rif_observation AS

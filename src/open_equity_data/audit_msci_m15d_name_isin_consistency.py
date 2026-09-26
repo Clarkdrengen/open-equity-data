@@ -14,6 +14,8 @@ WITH extension AS (
            MIN(msci_timeseries_code) AS extension_timeseries_code,
            MIN(shares_today) AS shares_today,
            MIN(closing_shares) AS closing_shares,
+           MIN(scap_fif_raw) AS scap_fif_raw,
+           MIN(historical_gimi_fif_raw) AS historical_gimi_fif_raw,
            COUNT(*) AS extension_rows,
            COUNT(DISTINCT security_name) AS extension_name_variants,
            COUNT(DISTINCT msci_issuer_code) AS extension_issuer_codes,
@@ -68,7 +70,8 @@ CREATE OR REPLACE TABLE silver.msci_m15d_price_overlap_candidate AS
 WITH matches AS (
     SELECT c.observation_date, c.msci_security_code, c.isin,
            c.extension_name, c.rif_name, c.identity_status,
-           c.shares_today, c.closing_shares, u.security_id, u.ticker,
+           c.shares_today, c.closing_shares, c.scap_fif_raw,
+           c.historical_gimi_fif_raw, u.security_id, u.ticker,
            u.date AS price_date, p.close AS raw_close,
            ROW_NUMBER() OVER (
                PARTITION BY c.observation_date, c.msci_security_code,

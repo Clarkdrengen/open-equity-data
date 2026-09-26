@@ -5,14 +5,17 @@ dated security-level share observations; `m15d_rif.zip` contains dated MSCI
 codes, names, and ISINs. Never combine them by filename glob alone or infer
 an ISIN from a company name.
 
-The extension-file importer is local-only:
+Start with a format pilot (first, middle, last ZIP of each family), then run
+the same imports without `--pilot` for the full set. Already archived bytes
+are verified and skipped; Silver builders skip completed source digests unless
+`--rebuild` is passed. The importer is local-only:
 
 ```bash
 python -m open_equity_data.load_msci_m15d_bronze \
-  --directory "/Users/nickclark/Dropbox/MSCI Master/history"
+  --directory "/Users/nickclark/Dropbox/MSCI Master/history" --pilot
 python -m open_equity_data.build_msci_m15d_silver
 python -m open_equity_data.load_msci_m15d_rif_bronze \
-  --directory "/Users/nickclark/Dropbox/MSCI Master/history"
+  --directory "/Users/nickclark/Dropbox/MSCI Master/history" --pilot
 python -m open_equity_data.build_msci_m15d_rif_silver
 python -m open_equity_data.audit_msci_m15d_name_isin_consistency
 python -m open_equity_data.audit_msci_m15d_share_discrepancies

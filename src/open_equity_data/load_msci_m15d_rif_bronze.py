@@ -10,11 +10,13 @@ from zipfile import ZipFile
 from open_equity_data.db import connect
 
 
-def archive(con, root: Path) -> tuple[int, int]:
+def archive(con, root: Path, pilot: bool = False) -> tuple[int, int]:
     files = sorted(p for p in root.rglob("*.zip")
                    if p.name.lower().endswith("m15d_rif.zip"))
     if not files:
         raise ValueError("No *m15d_rif.zip files found")
+    if pilot and len(files) > 3:
+        files = [files[0], files[len(files) // 2], files[-1]]
     con.execute("CREATE SCHEMA IF NOT EXISTS bronze")
     con.execute("""
         CREATE TABLE IF NOT EXISTS bronze.msci_m15d_rif_source_archive (
@@ -51,15 +53,19 @@ def archive(con, root: Path) -> tuple[int, int]:
         """, [digest, str(path.relative_to(root)), len(raw), member.filename,
               member.file_size, raw])
         added += 1
+        if added % 20 == 0:
+            print(f"M15D RIF ZIPs archived: {added}/{len(files)}", flush=True)
     return len(files), added
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--directory", type=Path, required=True)
+    parser.add_argument("--pilot", action="store_true",
+                        help="Archive first, middle and last matching ZIP only")
     args = parser.parse_args()
     with connect() as con:
-        found, added = archive(con, args.directory)
+        found, added = archive(con, args.directory, args.pilot)
     print(f"M15D RIF ZIPs found={found} newly archived={added}")
 
 

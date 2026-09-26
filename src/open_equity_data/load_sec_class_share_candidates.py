@@ -17,6 +17,7 @@ from open_equity_data.sec_shares import (
 )
 from open_equity_data.sec_filing_bronze import (
     create_tables as create_bronze_tables,
+    read_retained_document,
     retain_document,
 )
 
@@ -381,7 +382,6 @@ def main() -> None:
                     primary_document,
             )
 
-            html = document["content"]
             # Commit source evidence independently: a parser failure must
             # never erase the raw document needed to diagnose or replay it.
             con.execute("BEGIN TRANSACTION")
@@ -399,6 +399,9 @@ def main() -> None:
             except Exception:
                 con.execute("ROLLBACK")
                 raise
+
+            # Derive Silver only from the exact bytes stored in Bronze.
+            html = read_retained_document(con, sha256)
 
             metadata = (
                 extract_class_security_metadata(

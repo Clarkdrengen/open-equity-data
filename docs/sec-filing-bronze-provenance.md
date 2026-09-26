@@ -17,9 +17,12 @@ retrieval happened. `sec_archive_download` means this invocation fetched it.
 share observation became known. The exact EDGAR archive URL and content hash
 link each Bronze row to its source.
 
-The existing `silver.sec_class_share_candidate` and
-`silver.sec_class_share_filing_audit` retain `source_document_sha256`. Their
-current extraction still covers only the supported Inline XBRL facts. Bronze
+The loader writes Bronze first, then reads the stored and hash-checked bytes
+back from Bronze before deriving Silver. The existing
+`silver.sec_class_share_candidate` and `silver.sec_class_share_filing_audit`
+retain `source_document_sha256`, accession, and filing date; candidate rows
+also record their Inline XBRL source method and XBRL context. Their current
+extraction still covers only the supported Inline XBRL facts. Bronze
 retention does not approve a class-to-security mapping, parse untagged cover
 pages, or change the EODHD PIT shares and market-cap outputs.
 

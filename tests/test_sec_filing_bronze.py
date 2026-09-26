@@ -3,7 +3,9 @@ import hashlib
 import duckdb
 import pytest
 
-from open_equity_data.sec_filing_bronze import create_tables, retain_document
+from open_equity_data.sec_filing_bronze import (
+    create_tables, read_retained_document, retain_document,
+)
 
 
 def test_document_versions_are_immutable_and_idempotent():
@@ -26,6 +28,10 @@ def test_document_versions_are_immutable_and_idempotent():
         SELECT raw_document FROM bronze.sec_filing_document
         WHERE source_document_sha256 = ?
     """, [hashlib.sha256(first).hexdigest()]).fetchone() == (first,)
+    assert read_retained_document(con, hashlib.sha256(first).hexdigest()) == first
+
+    with pytest.raises(LookupError, match="absent"):
+        read_retained_document(con, "not-present")
 
     with pytest.raises(ValueError, match="checksum"):
         retain_document(con, **params, document={"content": first, "sha256": "wrong"})

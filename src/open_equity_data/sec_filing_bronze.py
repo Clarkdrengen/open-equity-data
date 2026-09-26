@@ -88,3 +88,17 @@ def retain_document(
             document.get("source_access", "local_cache_or_archive"), now,
         ])
     return digest
+
+
+def read_retained_document(con, source_document_sha256: str) -> bytes:
+    """Return the stored source bytes that Silver extraction must parse."""
+    row = con.execute("""
+        SELECT raw_document FROM bronze.sec_filing_document
+        WHERE source_document_sha256 = ?
+    """, [source_document_sha256]).fetchone()
+    if row is None:
+        raise LookupError("SEC source document is absent from Bronze")
+    body = bytes(row[0])
+    if hashlib.sha256(body).hexdigest() != source_document_sha256:
+        raise ValueError("Stored Bronze SEC document checksum is invalid")
+    return body

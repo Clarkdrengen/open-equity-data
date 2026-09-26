@@ -35,3 +35,21 @@ existing pipeline treats that date as available at the close. Share counts
 can change materially during long filing gaps. A split before a security's
 first available split-factor date may be unobservable in this calculation;
 the source period and estimated factor remain visible for inspection.
+
+## Indexed aggregate market cap
+
+After building the market-cap candidate, run
+`python -m open_equity_data.export_aggregate_market_cap_index`. It creates
+`silver.research_aggregate_market_cap_index_candidate`, a daily CSV, and an
+SVG chart under `artifacts/research/market_cap_candidate`. The aggregate is
+the sum of eligible security-level close times estimated shares for each age
+window. Each series equals 100 on the first shared date with a positive
+aggregate cap under all three windows. Earlier dates retain null indices.
+The CSV records daily covered and eligible issue counts and coverage fractions.
+
+The index is a **level of measured covered market capitalization**. New
+listings, delistings, share issuance, and changing data coverage affect the
+sum; it must not be described as an investable market return or a fixed-universe
+price index. The 540-day coverage in the chart counts issues, not their missing
+economic weight. Multi-issue candidates remain excluded until their
+issue-specific shares can be resolved.

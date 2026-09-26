@@ -20,7 +20,7 @@ FIELDS = [
 
 def fixture_zip():
     definitions = [
-        f'# {i:2d} {key.replace("_", " "):<33}  {key:<28} '
+        f'# {i:2d} {key.replace("_", " "):<33} {key:<30} '
         f'{"D" if i == 1 else "S" if i == 2 else "N"} {16:3d} {4:2d}'.ljust(78)
         for i, key in enumerate(FIELDS, 1)
     ]

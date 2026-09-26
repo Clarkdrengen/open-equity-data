@@ -5,7 +5,6 @@ from __future__ import annotations
 import argparse
 import hashlib
 import io
-import re
 from collections import Counter
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
@@ -16,9 +15,19 @@ import pandas as pd
 from open_equity_data.db import connect
 
 
-DEFINITION = re.compile(
-    r"^#\s*(\d+)\s+(.+?)\s{2,}([A-Za-z][A-Za-z0-9_]*)\s+([NSD])\s+(\d+)\s+(\d+)\s*$"
-)
+def parse_definition(line: str) -> tuple[int, str] | None:
+    """Use MSCI's fixed dictionary columns; labels can contain single spaces."""
+    if not line.startswith("#") or len(line) != 78:
+        return None
+    try:
+        number = int(line[1:4])
+    except ValueError:
+        return None
+    key = line[39:69].strip()
+    metadata = line[70:].split()
+    if len(metadata) != 3 or metadata[0] not in {"N", "S", "D"}:
+        return None  # report title, not a field definition
+    return number, key
 REQUIRED = {
     "calc_date", "security_name", "msci_timeseries_code",
     "msci_issuer_code", "msci_security_code", "historical_GIMI_FIF",
@@ -54,18 +63,18 @@ def observations(archive_bytes: bytes, digest: str):
             for line_number, raw in enumerate(source, 1):
                 line = raw.decode("latin-1").rstrip("\r\n")
                 if not seen_data and line.startswith("#") and len(line) == 78:
-                    match = DEFINITION.match(line)
-                    if match:
-                        number = int(match.group(1))
+                    parsed = parse_definition(line)
+                    if parsed:
+                        number, key = parsed
                         if number in definitions:
                             raise ValueError("Duplicate M15D field number")
-                        definitions[number] = match.group(3)
+                        definitions[number] = key
                     continue
                 if not line.startswith("|"):
                     continue  # separators and fixed-width format guide rows
                 seen_data = True
                 fields = line.split("|")[1:]
-                if fields and fields[-1] == "":
+                if fields and not fields[-1].strip():
                     fields.pop()
                 if not REQUIRED.issubset(definitions.values()) or len(definitions) != 17:
                     raise ValueError("Unexpected M15D dictionary; inspect locally")
@@ -103,7 +112,7 @@ def insert_chunk(con, chunk: list[tuple]) -> None:
         con.unregister("m15d_chunk")
 
 
-def build(con):
+def build(con, rebuild: bool = False):
     con.execute("CREATE SCHEMA IF NOT EXISTS silver")
     con.execute("""
         CREATE TABLE IF NOT EXISTS silver.msci_m15d_security_observation (
@@ -130,7 +139,15 @@ def build(con):
         ORDER BY source_relative_path
     """).fetchall()
     results = Counter()
+    completed = set() if rebuild else {
+        row[0] for row in con.execute("""
+            SELECT DISTINCT source_sha256 FROM silver.msci_m15d_security_observation
+        """).fetchall()
+    }
     for (digest,) in sources:
+        if digest in completed:
+            results["already_built"] += 1
+            continue
         raw = bytes(con.execute("""
             SELECT raw_archive_bytes FROM bronze.msci_m15d_source_archive
             WHERE source_sha256 = ?
@@ -154,13 +171,17 @@ def build(con):
             con.execute("ROLLBACK")
             raise
         results["archives"] += 1
+        if results["archives"] % 20 == 0:
+            print(f"M15D extension archives parsed: {results['archives']}/{len(sources)}", flush=True)
     return results
 
 
 def main() -> None:
-    argparse.ArgumentParser(description=__doc__).parse_args()
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--rebuild", action="store_true")
+    args = parser.parse_args()
     with connect() as con:
-        result = build(con)
+        result = build(con, args.rebuild)
         dates = con.execute("""
             SELECT MIN(observation_date), MAX(observation_date),
                    COUNT(DISTINCT msci_security_code)

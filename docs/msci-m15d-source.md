@@ -1,9 +1,9 @@
 # Confidential MSCI M15D sources
 
 There are two distinct local ZIP families: `m15d.extension.zip` contains
-dated security-level share observations; `m15d_rif.zip` reportedly contains
-ISIN and may provide the exact MSCI-code crosswalk. Never combine them by
-filename glob alone or infer an ISIN from a company name.
+dated security-level share observations; `m15d_rif.zip` contains dated MSCI
+codes, names, and ISINs. Never combine them by filename glob alone or infer
+an ISIN from a company name.
 
 The extension-file importer is local-only:
 
@@ -11,6 +11,10 @@ The extension-file importer is local-only:
 python -m open_equity_data.load_msci_m15d_bronze \
   --directory "/Users/nickclark/Dropbox/MSCI Master/history"
 python -m open_equity_data.build_msci_m15d_silver
+python -m open_equity_data.load_msci_m15d_rif_bronze \
+  --directory "/Users/nickclark/Dropbox/MSCI Master/history"
+python -m open_equity_data.build_msci_m15d_rif_silver
+python -m open_equity_data.audit_msci_m15d_name_isin_consistency
 ```
 
 `bronze.msci_m15d_source_archive` holds exact ZIP bytes with SHA-256,
@@ -18,11 +22,21 @@ relative filename, member metadata and ingestion timestamp. The Silver
 builder reads those archived bytes, parses the embedded 17-field dictionary
 and pipe-delimited rows, and writes raw and parsed share fields with source
 digest and line number to `silver.msci_m15d_security_observation`.
+The RIF archive is preserved separately in
+`bronze.msci_m15d_rif_source_archive`; its Silver parser reads the embedded
+147-field dictionary but stores only the required dated MSCI-code, name and
+identifier evidence in `silver.msci_m15d_rif_observation`.
 
-The present output is **unmapped candidate evidence**. The MSCI security
-code is not the project's security ID or ISIN. The `shares_today` and
-`closing_shares` fields have index-timing labels, and the file also includes
-inclusion factors. No canonical shares or portfolio weights are changed.
-After inspecting the RIF schema, join on exact MSCI code and effective date,
-audit name and ISIN consistency, and only then measure price-universe overlap.
-Raw ZIPs and row-level outputs stay on the local Mac database, not GitHub.
+The audit joins on date and MSCI security code, checks issuer and timeseries
+code agreement, duplicate share/ISIN conflicts, and normalized name agreement.
+`silver.msci_m15d_identity_candidate` retains all extension keys with status;
+`silver.msci_m15d_price_overlap_candidate` shows dated ISIN matches to the
+project's primary-exchange price universe, including `name_review` cases as
+explicitly unapproved candidates. It prints only aggregate counts.
+
+The MSCI security code is not the project's security ID. The `shares_today`
+and `closing_shares` fields have index-timing labels, and the file also
+includes inclusion factors. No canonical shares or portfolio weights are
+changed. Raw ZIPs and row-level outputs stay on the local Mac database,
+not GitHub. The pasted RIF excerpt used for local parser validation contained
+real names and identifiers and is not included in repository tests or docs.

@@ -10,16 +10,19 @@ from zipfile import ZipFile
 from open_equity_data.db import connect
 
 
-def archive(con, root: Path, pilot: bool = False) -> tuple[int, int]:
+def archive(con, root: Path, pilot: bool = False, *, family: str = "m15d") -> tuple[int, int]:
+    if family not in {"m15d", "m15e"}:
+        raise ValueError("Unknown MSCI source family")
+    table = f"bronze.msci_{family}_source_archive"
     files = sorted(p for p in root.rglob("*.zip")
-                   if p.name.lower().endswith("m15d.extension.zip"))
+                   if p.name.lower().endswith(f"{family}.extension.zip"))
     if not files:
-        raise ValueError("No *m15d.extension.zip files found")
+        raise ValueError(f"No *{family}.extension.zip files found")
     if pilot and len(files) > 3:
         files = [files[0], files[len(files) // 2], files[-1]]
     con.execute("CREATE SCHEMA IF NOT EXISTS bronze")
-    con.execute("""
-        CREATE TABLE IF NOT EXISTS bronze.msci_m15d_source_archive (
+    con.execute(f"""
+        CREATE TABLE IF NOT EXISTS {table} (
             source_sha256 VARCHAR PRIMARY KEY,
             source_relative_path VARCHAR NOT NULL,
             source_origin VARCHAR NOT NULL,
@@ -39,16 +42,16 @@ def archive(con, root: Path, pilot: bool = False) -> tuple[int, int]:
             if len(members) != 1 or members[0].file_size > 100_000_000:
                 raise ValueError(f"Unexpected M15D archive member layout: {path}")
             member = members[0]
-        existing = con.execute("""
-            SELECT raw_archive_bytes FROM bronze.msci_m15d_source_archive
+        existing = con.execute(f"""
+            SELECT raw_archive_bytes FROM {table}
             WHERE source_sha256 = ?
         """, [digest]).fetchone()
         if existing:
             if bytes(existing[0]) != raw:
                 raise ValueError("Existing archive bytes differ from source")
             continue
-        con.execute("""
-            INSERT INTO bronze.msci_m15d_source_archive
+        con.execute(f"""
+            INSERT INTO {table}
             VALUES (?, ?, 'user_supplied_local_zip', ?, ?, ?, current_timestamp, ?)
         """, [digest, str(path.relative_to(root)), len(raw), member.filename,
               member.file_size, raw])

@@ -1,38 +1,43 @@
-# MSCI-preferred daily share sensitivity (candidate)
+# Dated MSCI/EODHD shares and market cap (Silver candidate)
 
-Nick approved preferring MSCI RIF security shares where both MSCI and EODHD
-have an eligible count for the same priced issue. The two source facts remain
-separate; no source bytes or row-level outputs are uploaded. This candidate
-does not replace the established EODHD PIT table or existing return weights.
+The agreed priority is MSCI, then EODHD, then another approved source. Both
+known sources can carry a dated observation forward for at most **365 calendar
+days**. No future observation is backfilled into earlier dates. The third
+source has not been identified and is therefore not silently inferred from an
+unreviewed SEC class-share candidate. A row with neither source has null shares
+and market cap. No deciles or backtests are built by this module.
 
-Run after the RIF share extraction and both family overlap audits:
+Run after the RIF extraction and both family overlap audits:
 
 ```bash
 python -m open_equity_data.build_msci_daily_share_preference
 ```
 
-`silver.msci_preferred_share_snapshot_candidate` combines exact
-date/code/ISIN single-issue matches from the distinct M15D and M15E families.
-It excludes duplicate issue/snapshot rows and conflicting positive Closing
-share values. The three daily Silver tables
-`silver.msci_daily_share_preference_lag{1,5,22}_candidate` use the first,
-fifth or twenty-second **research session after** the MSCI month-end date as
-alternative earliest-use assumptions. The source's actual release timestamp
-is not available, so none of these is asserted to be historical truth.
+The daily tables `silver.msci_daily_share_preference_lag{1,5,22}_candidate`
+start from **every dated row of `silver.security_daily_ohlcv_reconciled`**.
+There is no join to securities that happen to be present one or two years
+later, no conditioning on an eventual MSCI match, and no research-universe
+eligibility filter in the daily share/cap construction. The snapshot candidate
+uses distinct M15D and M15E source lineage and single-issue matched RIF
+Closing-share evidence. MSCI publication timestamps are unknown; first,
+fifth and twenty-second price sessions after the month-end observation are
+separate availability sensitivities, not asserted actual release dates.
 
-Each lag keeps the previous available snapshot until the replacement becomes
-eligible, subject to a 45-calendar-day snapshot age limit. Where the same
-issue also has a valid EODHD PIT share record, the candidate selects MSCI
-Closing shares. To compare with a later daily closing price, it adjusts for
-the project's reconciled split factors from the MSCI price anchor to the
-current date; missing factors block selection. Rows with only MSCI are marked
-pending rather than automatically filling an EODHD gap. EODHD issuer-total
-shares are not an acceptable fallback for flagged simultaneously listed
-common-equity issues when MSCI is unavailable.
+Within each sensitivity, MSCI is selected when the latest eligible snapshot
+is at most 365 days old, with positive shares and dated split factors.
+The shares are rolled forward with reconciled split multipliers. Otherwise,
+the latest positive EODHD balance-sheet count is selected only from its filing
+date through 365 days later, with the existing ticker-identity ambiguity
+screen. Market cap is dated reconciled closing price times the selected share
+count. The rows retain share source, filing or snapshot date, count, price,
+and selection status. The derived security cap is a **candidate**, especially
+for EODHD issuer totals on multi-class issuers, ADR basis differences, and
+possible historical split normalization. The daily Silver base does not
+solve those source-basis issues.
 
-The command prints issue-day status counts, priced MSCI candidate counts and
-the maximum MSCI-based security market-cap candidate for all three lag
-assumptions. It does not calculate a full-universe market cap or alter any
-benchmark. Before adopting a lag or market-cap weight, review
-coverage, giant-cap outliers, share-class/ADR basis and the release-timing
-assumption with Nick. Month-end shares cannot be used on earlier daily dates.
+The command reports dated issue-day counts, priced counts and largest
+single-issue cap by source and lag. Inspect outliers and choose the MSCI
+release-timing policy and third source with Nick before promoting the cap
+series. Existing PR #29 weighted aggregate and decile calculations remain
+invalid; this module does not create or update them. Source bytes stay in
+Bronze and confidential MSCI records remain on Nick's Mac.

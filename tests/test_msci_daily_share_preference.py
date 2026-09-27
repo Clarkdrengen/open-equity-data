@@ -1,3 +1,5 @@
+from datetime import date
+
 import duckdb
 
 from open_equity_data.build_msci_daily_share_preference import build
@@ -34,13 +36,16 @@ def test_msci_source_priority_waits_for_selected_session_and_keeps_previous_snap
         SELECT * FROM silver.msci_m15d_rif_share_overlap_audit WHERE FALSE
     """)
     con.execute("""
-        CREATE TABLE silver.security_daily_shares_outstanding_pit AS
-        SELECT security_id, date, ticker, 900.0 AS shares_outstanding,
-               DATE '2020-01-15' AS shares_filing_date,
-               DATE '2019-12-31' AS shares_period_date, 19 AS shares_age_days,
-               TRUE AS shares_pit_available,
-               FALSE AS ticker_identity_ambiguous
-        FROM silver.research_universe_eligibility
+        CREATE TABLE silver.security_shares_outstanding_effective AS
+        SELECT 'AAA' AS ticker, DATE '2020-01-15' AS filing_date,
+               DATE '2019-12-31' AS period_date,
+               900.0 AS shares_outstanding
+        UNION ALL SELECT 'BBB', DATE '2020-01-15', DATE '2019-12-31', 700.0
+    """)
+    con.execute("""
+        CREATE TABLE silver.shares_ticker_identity_diagnostic AS
+        SELECT 'AAA' AS ticker, FALSE AS ticker_identity_ambiguous
+        UNION ALL SELECT 'BBB', FALSE
     """)
     con.execute("""
         CREATE TABLE silver.security_daily_split_factor_reconciled AS
@@ -49,46 +54,88 @@ def test_msci_source_priority_waits_for_selected_session_and_keeps_previous_snap
     """)
     con.execute("""
         CREATE TABLE silver.security_daily_ohlcv_reconciled AS
-        SELECT security_id, date, 10.0 AS close, TRUE AS research_eligible
+        SELECT security_id, date, ticker, 10.0 AS close,
+               TRUE AS research_eligible
         FROM silver.research_universe_eligibility
     """)
     con.execute("""
-        CREATE TABLE silver.multi_listed_common_equity_candidate AS
-        SELECT 1 AS security_id_a, 2 AS security_id_b WHERE FALSE
+        INSERT INTO silver.security_daily_ohlcv_reconciled VALUES
+            (2, DATE '2020-01-14', 'BBB', 5.0, FALSE),
+            (2, DATE '2020-02-03', 'BBB', 5.0, FALSE),
+            (2, DATE '2021-01-14', 'BBB', 5.0, FALSE),
+            (2, DATE '2021-01-15', 'BBB', 5.0, FALSE),
+            (1, DATE '2021-02-26', 'AAA', 10.0, TRUE),
+            (1, DATE '2021-03-01', 'AAA', 10.0, TRUE)
+    """)
+    con.execute("""
+        INSERT INTO silver.security_daily_split_factor_reconciled VALUES
+            (1, DATE '2021-02-26', 1.0),
+            (1, DATE '2021-03-01', 1.0)
     """)
     rows = build(con)
-    assert any(row[0:2] == (1, 'msci_preferred_where_both') for row in rows)
+    assert any(row[0:2] == (1, 'msci') for row in rows)
     lag1 = con.execute("""
         SELECT date, msci_snapshot_date, msci_current_shares_candidate,
-               source_status
+               selected_source
         FROM silver.msci_daily_share_preference_lag1_candidate
-        WHERE date IN (DATE '2020-01-31', DATE '2020-02-03', DATE '2020-03-02')
+        WHERE security_id = 1
+          AND date IN (DATE '2020-01-31', DATE '2020-02-03', DATE '2020-03-02')
         ORDER BY date
     """).fetchall()
-    assert lag1[0][1:] == (None, None, 'eodhd_only_or_msci_not_yet_available')
-    assert lag1[1][2:] == (1000.0, 'msci_preferred_where_both')
-    assert lag1[2][2:] == (1200.0, 'msci_preferred_where_both')
+    assert lag1[0][1:] == (None, None, 'eodhd')
+    assert lag1[1][2:] == (1000.0, 'msci')
+    assert lag1[2][2:] == (1200.0, 'msci')
     assert con.execute("""
-        SELECT msci_market_cap_candidate
+        SELECT market_cap_candidate
         FROM silver.msci_daily_share_preference_lag1_candidate
         WHERE date = DATE '2020-03-02'
     """).fetchone()[0] == 12_000.0
     lag5 = con.execute("""
         SELECT date, msci_snapshot_date, msci_current_shares_candidate
         FROM silver.msci_daily_share_preference_lag5_candidate
-        WHERE date IN (DATE '2020-02-06', DATE '2020-02-07',
+        WHERE security_id = 1 AND date IN (DATE '2020-02-06', DATE '2020-02-07',
                        DATE '2020-03-02', DATE '2020-03-06')
         ORDER BY date
     """).fetchall()
     assert [r[2] for r in lag5] == [None, 1000.0, 1000.0, 1200.0]
     assert con.execute("""
         SELECT COUNT(*) FROM silver.msci_daily_share_preference_lag22_candidate
-        WHERE msci_current_shares_candidate IS NOT NULL
+        WHERE date <= DATE '2020-03-06'
+          AND msci_current_shares_candidate IS NOT NULL
     """).fetchone()[0] == 0
 
+    # Base rows are all dated prices, including a security absent from MSCI
+    # and a price row outside the research eligibility table.
+    assert con.execute("""
+        SELECT selected_source, market_cap_candidate
+        FROM silver.msci_daily_share_preference_lag1_candidate
+        WHERE security_id = 2 AND date = DATE '2020-02-03'
+    """).fetchone() == ('eodhd', 3500.0)
+    assert con.execute("""
+        SELECT date, selected_source FROM
+            silver.msci_daily_share_preference_lag1_candidate
+        WHERE security_id = 2
+        ORDER BY date
+    """).fetchall() == [
+        (date(2020, 1, 14), 'no_eligible_share_source'),
+        (date(2020, 2, 3), 'eodhd'),
+        (date(2021, 1, 14), 'eodhd'),
+        (date(2021, 1, 15), 'no_eligible_share_source'),
+    ]
+    assert con.execute("""
+        SELECT selected_source, msci_current_shares_candidate
+        FROM silver.msci_daily_share_preference_lag1_candidate
+        WHERE date = DATE '2021-02-26'
+    """).fetchone() == ('msci', 1200.0)
+    assert con.execute("""
+        SELECT selected_source, market_cap_candidate
+        FROM silver.msci_daily_share_preference_lag1_candidate
+        WHERE date = DATE '2021-03-01'
+    """).fetchone() == ('no_eligible_share_source', None)
+
     con.execute("""
-        UPDATE silver.security_daily_shares_outstanding_pit
-        SET shares_pit_available = FALSE WHERE date = DATE '2020-03-02'
+        UPDATE silver.security_shares_outstanding_effective
+        SET shares_outstanding = 0 WHERE ticker = 'AAA'
     """)
     con.execute("""
         UPDATE silver.security_daily_split_factor_reconciled
@@ -96,10 +143,10 @@ def test_msci_source_priority_waits_for_selected_session_and_keeps_previous_snap
     """)
     build(con)
     assert con.execute("""
-        SELECT source_status, msci_current_shares_candidate
+        SELECT selected_source, msci_current_shares_candidate
         FROM silver.msci_daily_share_preference_lag1_candidate
         WHERE date = DATE '2020-03-02'
-    """).fetchone() == ('msci_only_pending_policy', None)
+    """).fetchone() == ('msci', 1200.0)
     assert con.execute("""
         SELECT msci_current_shares_candidate
         FROM silver.msci_daily_share_preference_lag5_candidate

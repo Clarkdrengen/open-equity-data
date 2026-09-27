@@ -1,4 +1,4 @@
-"""Build a reversible daily MSCI-first share candidate with availability lags.
+"""Build dated MSCI/EODHD daily shares and market-cap candidates.
 
 This is a source-priority sensitivity, not a PIT release-date assertion or a
 canonical market-cap replacement.
@@ -29,8 +29,7 @@ WITH all_sources AS (
 ), calendar AS (
     SELECT date, ROW_NUMBER() OVER (ORDER BY date) AS session_number
     FROM (
-        SELECT DISTINCT date FROM silver.research_universe_eligibility
-        WHERE primary_research_eligible_exchange
+        SELECT DISTINCT date FROM silver.security_daily_ohlcv_reconciled
     )
 ), first_after AS (
     SELECT s.observation_date, MIN(c.session_number) AS first_session
@@ -63,35 +62,26 @@ CREATE OR REPLACE TABLE silver.msci_daily_share_preference_lag{lag}_candidate AS
 WITH calendar AS (
     SELECT date, ROW_NUMBER() OVER (ORDER BY date) AS session_number
     FROM (
-        SELECT DISTINCT date FROM silver.research_universe_eligibility
-        WHERE primary_research_eligible_exchange
+        SELECT DISTINCT date FROM silver.security_daily_ohlcv_reconciled
     )
 ), base AS (
-    SELECT u.security_id, u.date, u.ticker, c.session_number,
-           p.shares_outstanding AS eodhd_filed_shares,
-           p.shares_filing_date, p.shares_period_date, p.shares_age_days,
-           p.shares_pit_available, p.ticker_identity_ambiguous,
-           (mi.security_id IS NOT NULL) AS multi_issue_candidate,
+    SELECT px.security_id, px.date, px.ticker, c.session_number,
+           o.shares_outstanding AS eodhd_filed_shares,
+           o.filing_date AS shares_filing_date,
+           o.period_date AS shares_period_date,
+           date_diff('day', o.filing_date, px.date) AS shares_age_days,
+           COALESCE(i.ticker_identity_ambiguous, FALSE)
+               AS ticker_identity_ambiguous,
            f.cumulative_split_multiplier AS current_split_multiplier,
            px.close, px.research_eligible AS price_research_eligible
-    FROM silver.research_universe_eligibility u
-    JOIN (SELECT DISTINCT security_id
-          FROM silver.msci_preferred_share_snapshot_candidate) m USING (security_id)
-    JOIN calendar c ON c.date = u.date
-    JOIN silver.security_daily_shares_outstanding_pit p
-      ON p.security_id = u.security_id
-     AND p.date = u.date AND p.ticker = u.ticker
+    FROM silver.security_daily_ohlcv_reconciled px
+    JOIN calendar c ON c.date = px.date
+    ASOF LEFT JOIN silver.security_shares_outstanding_effective o
+      ON px.ticker = o.ticker AND px.date >= o.filing_date
+    LEFT JOIN silver.shares_ticker_identity_diagnostic i
+      ON i.ticker = px.ticker
     LEFT JOIN silver.security_daily_split_factor_reconciled f
-      ON f.security_id = u.security_id AND f.date = u.date
-    LEFT JOIN silver.security_daily_ohlcv_reconciled px
-      ON px.security_id = u.security_id AND px.date = u.date
-    LEFT JOIN (
-        SELECT security_id_a AS security_id
-        FROM silver.multi_listed_common_equity_candidate
-        UNION SELECT security_id_b AS security_id
-        FROM silver.multi_listed_common_equity_candidate
-    ) mi ON mi.security_id = u.security_id
-    WHERE u.primary_research_eligible_exchange
+      ON f.security_id = px.security_id AND f.date = px.date
 ), attached AS (
     SELECT b.*, s.family, s.observation_date AS msci_snapshot_date,
            s.price_date AS msci_anchor_price_date,
@@ -105,14 +95,15 @@ WITH calendar AS (
 ), classified AS (
     SELECT *,
            msci_snapshot_date IS NOT NULL
-           AND date_diff('day', msci_snapshot_date, date) BETWEEN 0 AND 45
+           AND date_diff('day', msci_snapshot_date, date) BETWEEN 0 AND 365
+           AND msci_anchor_price_date <= date
            AND current_split_multiplier > 0
            AND anchor_split_multiplier > 0
-               AS msci_fresh_and_split_supported,
-           COALESCE(shares_pit_available, FALSE)
-           AND eodhd_filed_shares > 0
+               AS msci_within_365_days,
+           eodhd_filed_shares > 0
+           AND shares_age_days BETWEEN 0 AND 365
            AND NOT COALESCE(ticker_identity_ambiguous, FALSE)
-               AS eodhd_record_available
+               AS eodhd_within_365_days
     FROM attached
 )
 SELECT security_id, date, ticker, family, msci_snapshot_date,
@@ -120,22 +111,24 @@ SELECT security_id, date, ticker, family, msci_snapshot_date,
        msci_snapshot_shares, eodhd_filed_shares,
        shares_filing_date, shares_period_date, shares_age_days,
        close, price_research_eligible,
-       msci_fresh_and_split_supported, eodhd_record_available,
-       multi_issue_candidate,
-       CASE WHEN msci_fresh_and_split_supported AND eodhd_record_available
+       msci_within_365_days, eodhd_within_365_days,
+       CASE WHEN msci_within_365_days
             THEN msci_snapshot_shares * current_split_multiplier
                  / anchor_split_multiplier END AS msci_current_shares_candidate,
-       CASE WHEN msci_fresh_and_split_supported AND eodhd_record_available
-                  AND close > 0 AND price_research_eligible
+       CASE WHEN msci_within_365_days THEN 'msci'
+            WHEN eodhd_within_365_days
+                 THEN 'eodhd'
+            ELSE 'no_eligible_share_source' END AS selected_source,
+       CASE WHEN msci_within_365_days
+            THEN msci_snapshot_shares * current_split_multiplier
+                 / anchor_split_multiplier
+            WHEN eodhd_within_365_days
+            THEN eodhd_filed_shares END AS selected_shares_candidate,
+       CASE WHEN close > 0 AND msci_within_365_days
             THEN close * msci_snapshot_shares * current_split_multiplier
-                 / anchor_split_multiplier END AS msci_market_cap_candidate,
-       CASE WHEN msci_fresh_and_split_supported AND eodhd_record_available
-            THEN 'msci_preferred_where_both'
-            WHEN eodhd_record_available AND NOT multi_issue_candidate
-                 THEN 'eodhd_only_or_msci_not_yet_available'
-            WHEN multi_issue_candidate THEN 'multi_issue_without_usable_msci'
-            WHEN msci_fresh_and_split_supported THEN 'msci_only_pending_policy'
-            ELSE 'neither_source_eligible' END AS source_status
+                 / anchor_split_multiplier
+            WHEN close > 0 AND eodhd_within_365_days
+            THEN close * eodhd_filed_shares END AS market_cap_candidate
 FROM classified
 """
 
@@ -145,12 +138,11 @@ def build(con):
     for lag in (1, 5, 22):
         con.execute(daily_sql(lag))
     return con.execute("""
-        SELECT lag, source_status, COUNT(*) AS issue_days,
+        SELECT lag, selected_source, COUNT(*) AS issue_days,
                COUNT(DISTINCT security_id) AS issues,
-               COUNT(*) FILTER (WHERE close > 0 AND price_research_eligible
-                                     AND msci_current_shares_candidate > 0)
-                   AS priced_msci_issue_days,
-               MAX(msci_market_cap_candidate) AS largest_msci_cap_candidate
+               COUNT(*) FILTER (WHERE market_cap_candidate > 0)
+                   AS priced_issue_days,
+               MAX(market_cap_candidate) AS largest_cap_candidate
         FROM (
             SELECT 1 AS lag, * FROM silver.msci_daily_share_preference_lag1_candidate
             UNION ALL
@@ -165,10 +157,10 @@ def build(con):
 def main():
     with connect() as con:
         rows = build(con)
-    print("lag_sessions | status | issue_days | issues | priced_msci_issue_days | largest_msci_cap_candidate")
+    print("lag_sessions | selected_source | issue_days | issues | priced_issue_days | largest_cap_candidate")
     for row in rows:
         print(*row, sep=" | ")
-    print("Candidate only: MSCI source release timing and daily cap adoption are unapproved.")
+    print("Candidate only: MSCI release timing and third-priority source require review.")
 
 
 if __name__ == "__main__":

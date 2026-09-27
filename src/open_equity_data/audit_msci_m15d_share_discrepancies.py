@@ -57,16 +57,21 @@ FROM ratios
 """
 
 
-def build(con):
-    con.execute(SQL)
-    return con.execute("""
+def build(con, *, family: str = "m15d"):
+    if family not in {"m15d", "m15e"}:
+        raise ValueError("Unknown MSCI source family")
+    def for_family(sql: str) -> str:
+        return sql.replace("msci_m15d_", f"msci_{family}_")
+
+    con.execute(for_family(SQL))
+    return con.execute(for_family("""
         SELECT identity_status, today_scale_band, closing_scale_band,
                COUNT(*) AS issue_dates, COUNT(DISTINCT security_id) AS issues,
                COUNT(*) FILTER (WHERE intervening_split) AS split_overlap,
                MIN(observation_date), MAX(observation_date)
         FROM silver.msci_m15d_share_discrepancy_audit
         GROUP BY 1, 2, 3 ORDER BY 1, 2, 3
-    """).fetchall()
+    """)).fetchall()
 
 
 def main():

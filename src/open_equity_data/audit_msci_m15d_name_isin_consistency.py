@@ -99,22 +99,27 @@ FROM latest
 """
 
 
-def build(con):
-    con.execute(IDENTITY_SQL)
-    con.execute(OVERLAP_SQL)
-    statuses = con.execute("""
+def build(con, *, family: str = "m15d"):
+    if family not in {"m15d", "m15e"}:
+        raise ValueError("Unknown MSCI source family")
+    def for_family(sql: str) -> str:
+        return sql.replace("msci_m15d_", f"msci_{family}_")
+
+    con.execute(for_family(IDENTITY_SQL))
+    con.execute(for_family(OVERLAP_SQL))
+    statuses = con.execute(for_family("""
         SELECT identity_status, COUNT(*),
                COUNT(*) FILTER (WHERE normalized_name_agreement),
                MIN(observation_date), MAX(observation_date)
         FROM silver.msci_m15d_identity_candidate
         GROUP BY 1 ORDER BY 1
-    """).fetchall()
-    overlap = con.execute("""
+    """)).fetchall()
+    overlap = con.execute(for_family("""
         SELECT identity_status, COUNT(*), COUNT(DISTINCT security_id),
                COUNT(*) FILTER (WHERE project_security_matches > 1)
         FROM silver.msci_m15d_price_overlap_candidate
         GROUP BY 1 ORDER BY 1
-    """).fetchall()
+    """)).fetchall()
     return statuses, overlap
 
 

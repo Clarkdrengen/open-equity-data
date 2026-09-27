@@ -71,18 +71,22 @@ def observations(raw_archive: bytes, digest: str):
                 raise ValueError("No RIF data rows")
 
 
-def insert_chunk(con, chunk):
+def insert_chunk(con, chunk, table: str = "silver.msci_m15d_rif_observation"):
     con.register("rif_chunk", pd.DataFrame(chunk, columns=COLUMNS))
     try:
-        con.execute("INSERT INTO silver.msci_m15d_rif_observation SELECT * FROM rif_chunk")
+        con.execute(f"INSERT INTO {table} SELECT * FROM rif_chunk")
     finally:
         con.unregister("rif_chunk")
 
 
-def build(con, rebuild: bool = False):
+def build(con, rebuild: bool = False, *, family: str = "m15d"):
+    if family not in {"m15d", "m15e"}:
+        raise ValueError("Unknown MSCI source family")
+    source_table = f"bronze.msci_{family}_rif_source_archive"
+    table = f"silver.msci_{family}_rif_observation"
     con.execute("CREATE SCHEMA IF NOT EXISTS silver")
-    con.execute("""
-        CREATE TABLE IF NOT EXISTS silver.msci_m15d_rif_observation (
+    con.execute(f"""
+        CREATE TABLE IF NOT EXISTS {table} (
             source_sha256 VARCHAR NOT NULL,
             source_row_number BIGINT NOT NULL,
             observation_date DATE,
@@ -98,38 +102,38 @@ def build(con, rebuild: bool = False):
             PRIMARY KEY (source_sha256, source_row_number)
         )
     """)
-    sources = con.execute("""
-        SELECT source_sha256 FROM bronze.msci_m15d_rif_source_archive
+    sources = con.execute(f"""
+        SELECT source_sha256 FROM {source_table}
         ORDER BY source_relative_path
     """).fetchall()
     results = Counter()
     completed = set() if rebuild else {
-        row[0] for row in con.execute("""
-            SELECT DISTINCT source_sha256 FROM silver.msci_m15d_rif_observation
+        row[0] for row in con.execute(f"""
+            SELECT DISTINCT source_sha256 FROM {table}
         """).fetchall()
     }
     for (digest,) in sources:
         if digest in completed:
             results["already_built"] += 1
             continue
-        raw = bytes(con.execute("""
-            SELECT raw_archive_bytes FROM bronze.msci_m15d_rif_source_archive
+        raw = bytes(con.execute(f"""
+            SELECT raw_archive_bytes FROM {source_table}
             WHERE source_sha256 = ?
         """, [digest]).fetchone()[0])
         if hashlib.sha256(raw).hexdigest() != digest:
             raise ValueError("Bronze RIF archive digest mismatch")
         con.execute("BEGIN TRANSACTION")
         try:
-            con.execute("DELETE FROM silver.msci_m15d_rif_observation WHERE source_sha256 = ?", [digest])
+            con.execute(f"DELETE FROM {table} WHERE source_sha256 = ?", [digest])
             chunk = []
             for row in observations(raw, digest):
                 chunk.append(row)
                 results[row[-1]] += 1
                 if len(chunk) >= 10_000:
-                    insert_chunk(con, chunk)
+                    insert_chunk(con, chunk, table)
                     chunk = []
             if chunk:
-                insert_chunk(con, chunk)
+                insert_chunk(con, chunk, table)
             con.execute("COMMIT")
         except Exception:
             con.execute("ROLLBACK")

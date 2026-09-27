@@ -29,7 +29,12 @@ The overlap audit joins by monthly observation date, MSCI security code and
 ISIN to the existing priced-issue candidate, whose price is the latest
 eligible business-day price on or before the month-end snapshot within seven
 days. It retains per-source share variants, identity/PIT/split blockers and
-separate Closing and Today ratios to filed EODHD shares. The month-end
+separate Closing and Today **raw-value** ratios to filed EODHD shares. Bands
+near 1, 1,000 and 1,000,000 (and their reciprocals) test scale hypotheses;
+none is an adopted unit conversion. The dictionary's numeric width and
+decimal count do not state whether the values are absolute shares or millions.
+A source-internal cap/price check requires matching price currency and careful
+treatment of inclusion factors; the security cap may be absent. The month-end
 snapshot is not a known publication date. Index methodology, ADR conversion,
 share class, corporate actions and cap/price unit interpretation must be
 reviewed before use in daily point-in-time market caps or backtests. The

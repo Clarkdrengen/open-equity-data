@@ -95,6 +95,12 @@ def build(con, family: str = "m15d"):
                    AS today_ratios,
                COUNT(*) FILTER (WHERE closing_to_eodhd_ratio BETWEEN 800 AND 1250)
                    AS closing_near_1000x_high,
+               COUNT(*) FILTER (WHERE closing_to_eodhd_ratio BETWEEN 0.0008 AND 0.00125)
+                   AS closing_near_1000x_low,
+               COUNT(*) FILTER (WHERE closing_to_eodhd_ratio BETWEEN 800000 AND 1250000)
+                   AS closing_near_million_high,
+               COUNT(*) FILTER (WHERE closing_to_eodhd_ratio BETWEEN 0.0000008 AND 0.00000125)
+                   AS closing_near_million_low,
                COUNT(*) FILTER (WHERE closing_to_eodhd_ratio BETWEEN 0.8 AND 1.25)
                    AS closing_near_1x,
                COUNT(*) FILTER (WHERE closing_share_variants > 1) AS conflicting_closing_rows
@@ -112,10 +118,12 @@ def main():
         "matched_snapshots", "matched_issues", "closing_share_rows",
         "today_share_rows", "eodhd_share_rows", "comparable_basis_rows",
         "closing_ratios", "today_ratios", "closing_near_1000x_high",
-        "closing_near_1x", "conflicting_closing_rows",
+        "closing_near_1000x_low", "closing_near_million_high",
+        "closing_near_million_low", "closing_near_1x",
+        "conflicting_closing_rows",
     )
     print(args.family.upper(), "RIF share overlap:", dict(zip(names, row)))
-    print("Month-end diagnostic only; share basis and source availability are unapproved.")
+    print("Month-end raw-value ratios only; no share-unit multiplier or source availability approved.")
 
 
 if __name__ == "__main__":

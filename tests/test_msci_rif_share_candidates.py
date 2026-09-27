@@ -74,7 +74,8 @@ def test_rif_shares_source_backed_and_dated_candidate(tmp_path, family):
     """)
     summary = audit(con, family)
     assert summary[:8] == (1, 1, 1, 1, 1, 1, 1, 1)
-    assert summary[8:10] == (1, 0)
+    assert summary[8:13] == (1, 0, 0, 0, 0)
+    assert summary[13] == 0
     assert con.execute(f"""
         SELECT closing_to_eodhd_ratio FROM silver.msci_{family}_rif_share_overlap_audit
     """).fetchone()[0] == 1000.0

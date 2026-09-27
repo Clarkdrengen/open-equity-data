@@ -67,13 +67,15 @@ WITH calendar AS (
 ), base AS (
     SELECT px.security_id, px.date, px.ticker, c.session_number,
            o.shares_outstanding AS eodhd_filed_shares,
+           o.shares_source AS eodhd_share_source,
            o.filing_date AS shares_filing_date,
            o.period_date AS shares_period_date,
            date_diff('day', o.filing_date, px.date) AS shares_age_days,
            COALESCE(i.ticker_identity_ambiguous, FALSE)
                AS ticker_identity_ambiguous,
            f.cumulative_split_multiplier AS current_split_multiplier,
-           px.close, px.research_eligible AS price_research_eligible
+           px.close, px.source AS price_source,
+           px.research_eligible AS price_research_eligible
     FROM silver.security_daily_ohlcv_reconciled px
     JOIN calendar c ON c.date = px.date
     ASOF LEFT JOIN silver.security_shares_outstanding_effective o
@@ -109,8 +111,9 @@ WITH calendar AS (
 SELECT security_id, date, ticker, family, msci_snapshot_date,
        msci_anchor_price_date, msci_security_code, isin,
        msci_snapshot_shares, eodhd_filed_shares,
+       eodhd_share_source,
        shares_filing_date, shares_period_date, shares_age_days,
-       close, price_research_eligible,
+       close, price_source, price_research_eligible,
        msci_within_365_days, eodhd_within_365_days,
        CASE WHEN msci_within_365_days
             THEN msci_snapshot_shares * current_split_multiplier

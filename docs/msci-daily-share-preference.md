@@ -7,6 +7,13 @@ source has not been identified and is therefore not silently inferred from an
 unreviewed SEC class-share candidate. A row with neither source has null shares
 and market cap. No deciles or backtests are built by this module.
 
+The original open-source Dolt/DoltHub import supplied the project's Bronze
+`ohlcv`, `split`, `dividend`, and `symbol` tables. It is the starting price and
+corporate-action source, not a verified outstanding-share source in the
+current pipeline. The cap candidate retains `price_source` independently of
+the selected share source, since a Dolt price can be paired with an MSCI or
+EODHD share count. EODHD also supplies some corrected or missing prices.
+
 Run after the RIF extraction and both family overlap audits:
 
 ```bash

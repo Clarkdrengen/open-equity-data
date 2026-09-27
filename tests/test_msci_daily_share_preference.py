@@ -39,8 +39,10 @@ def test_msci_source_priority_waits_for_selected_session_and_keeps_previous_snap
         CREATE TABLE silver.security_shares_outstanding_effective AS
         SELECT 'AAA' AS ticker, DATE '2020-01-15' AS filing_date,
                DATE '2019-12-31' AS period_date,
-               900.0 AS shares_outstanding
-        UNION ALL SELECT 'BBB', DATE '2020-01-15', DATE '2019-12-31', 700.0
+               900.0 AS shares_outstanding,
+               'eodhd_balance_sheet' AS shares_source
+        UNION ALL SELECT 'BBB', DATE '2020-01-15', DATE '2019-12-31',
+                         700.0, 'eodhd_balance_sheet'
     """)
     con.execute("""
         CREATE TABLE silver.shares_ticker_identity_diagnostic AS
@@ -54,18 +56,18 @@ def test_msci_source_priority_waits_for_selected_session_and_keeps_previous_snap
     """)
     con.execute("""
         CREATE TABLE silver.security_daily_ohlcv_reconciled AS
-        SELECT security_id, date, ticker, 10.0 AS close,
+        SELECT security_id, date, ticker, 10.0 AS close, 'dolt' AS source,
                TRUE AS research_eligible
         FROM silver.research_universe_eligibility
     """)
     con.execute("""
         INSERT INTO silver.security_daily_ohlcv_reconciled VALUES
-            (2, DATE '2020-01-14', 'BBB', 5.0, FALSE),
-            (2, DATE '2020-02-03', 'BBB', 5.0, FALSE),
-            (2, DATE '2021-01-14', 'BBB', 5.0, FALSE),
-            (2, DATE '2021-01-15', 'BBB', 5.0, FALSE),
-            (1, DATE '2021-02-26', 'AAA', 10.0, TRUE),
-            (1, DATE '2021-03-01', 'AAA', 10.0, TRUE)
+            (2, DATE '2020-01-14', 'BBB', 5.0, 'dolt', FALSE),
+            (2, DATE '2020-02-03', 'BBB', 5.0, 'dolt', FALSE),
+            (2, DATE '2021-01-14', 'BBB', 5.0, 'dolt', FALSE),
+            (2, DATE '2021-01-15', 'BBB', 5.0, 'dolt', FALSE),
+            (1, DATE '2021-02-26', 'AAA', 10.0, 'eodhd', TRUE),
+            (1, DATE '2021-03-01', 'AAA', 10.0, 'eodhd', TRUE)
     """)
     con.execute("""
         INSERT INTO silver.security_daily_split_factor_reconciled VALUES
@@ -107,10 +109,11 @@ def test_msci_source_priority_waits_for_selected_session_and_keeps_previous_snap
     # Base rows are all dated prices, including a security absent from MSCI
     # and a price row outside the research eligibility table.
     assert con.execute("""
-        SELECT selected_source, market_cap_candidate
+        SELECT selected_source, market_cap_candidate,
+               price_source, eodhd_share_source
         FROM silver.msci_daily_share_preference_lag1_candidate
         WHERE security_id = 2 AND date = DATE '2020-02-03'
-    """).fetchone() == ('eodhd', 3500.0)
+    """).fetchone() == ('eodhd', 3500.0, 'dolt', 'eodhd_balance_sheet')
     assert con.execute("""
         SELECT date, selected_source FROM
             silver.msci_daily_share_preference_lag1_candidate

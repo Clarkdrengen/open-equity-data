@@ -65,24 +65,28 @@ WITH priced AS (
                 THEN ABS(LN(share_basis_proxy / prior_share_basis_proxy))
                 END AS adjacent_log_ratio,
            GREATEST(max_msci_log_ratio, max_manual_log_ratio)
-               AS cross_source_log_ratio
+               AS cross_source_log_ratio,
+           ABS(log_shares - median_log_shares) AS median_deviation_log_ratio
     FROM dispersion
 )
 SELECT security_id, ticker, eodhd_provider_symbol, shares_period_date,
        shares_filing_date, eodhd_filed_shares, share_basis_proxy,
        first_price_date, last_price_date, priced_days, selected_days,
        max_selected_cap, max_raw_cap, invalidated, any_comparable_basis,
-       observations_for_issue, robust_z, adjacent_log_ratio,
+       observations_for_issue, robust_z, median_deviation_log_ratio,
+       adjacent_log_ratio,
        max_msci_log_ratio, max_manual_log_ratio, cross_source_log_ratio,
        CASE
          WHEN cross_source_log_ratio >= LN(10) THEN 'cross_source_10x'
          WHEN any_comparable_basis AND adjacent_log_ratio >= LN(10)
            THEN 'adjacent_10x'
-         WHEN any_comparable_basis AND robust_z >= 8 THEN 'robust_z_8'
+         WHEN any_comparable_basis AND robust_z >= 8
+              AND median_deviation_log_ratio >= LN(1.5) THEN 'robust_z_8'
          WHEN cross_source_log_ratio >= LN(2) THEN 'cross_source_2x'
          WHEN any_comparable_basis AND adjacent_log_ratio >= LN(2)
            THEN 'adjacent_2x'
-         WHEN any_comparable_basis AND robust_z >= 5 THEN 'robust_z_5'
+         WHEN any_comparable_basis AND robust_z >= 5
+              AND median_deviation_log_ratio >= LN(1.5) THEN 'robust_z_5'
          WHEN max_selected_cap >= 500000000000
               AND max_msci_log_ratio IS NULL
               AND max_manual_log_ratio IS NULL THEN 'large_cap_unverified'

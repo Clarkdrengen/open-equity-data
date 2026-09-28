@@ -1,6 +1,6 @@
 import duckdb
 
-from open_equity_data.audit_share_observation_anomalies import build, summary
+from open_equity_data.audit_share_observation_anomalies import build, queue, summary
 
 
 def test_source_record_audit_groups_days_and_catches_persistent_bad_scale():
@@ -50,3 +50,5 @@ def test_source_record_audit_groups_days_and_catches_persistent_bad_scale():
         (1, 1, 'adjacent_10x'), (2, 2, 'cross_source_10x')]
     assert rows[0][3] > 8
     assert sum(row[1] for row in summary(con)) == 5
+    assert [row[0] for row in queue(con, 30, section='selected_signal')] == [1]
+    assert [row[0] for row in queue(con, 30, section='unselected')] == [2]

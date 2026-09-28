@@ -34,50 +34,77 @@ def summary(con):
     """).fetchall()
 
 
-def queue(con, limit: int, *, selected: bool):
-    return con.execute("""
+def queue(con, limit: int, *, section: str, rank: str = 'z'):
+    if section not in ('selected_signal', 'selected_large_cap', 'unselected'):
+        raise ValueError(section)
+    if rank not in ('z', 'impact'):
+        raise ValueError(rank)
+    order = ('robust_z DESC NULLS LAST, max_selected_cap DESC NULLS LAST'
+             if rank == 'z' and section == 'selected_signal'
+             else ('max_raw_cap DESC NULLS LAST' if section == 'unselected'
+                   else 'max_selected_cap DESC NULLS LAST'))
+    return con.execute(f"""
+        WITH ranked AS (
+            SELECT a.*, ROW_NUMBER() OVER (
+                PARTITION BY security_id
+                ORDER BY {order}, shares_filing_date DESC
+            ) AS issue_rank
+            FROM silver.share_observation_anomaly_audit a
+            WHERE a.review_reason <> 'no_flag'
+              AND ((? = 'selected_signal' AND a.selected_days > 0
+                    AND a.review_reason <> 'large_cap_unverified')
+                OR (? = 'selected_large_cap' AND a.selected_days > 0
+                    AND a.review_reason = 'large_cap_unverified')
+                OR (? = 'unselected' AND a.selected_days = 0))
+        )
         SELECT a.security_id, a.ticker, a.eodhd_provider_symbol,
                a.shares_period_date, a.shares_filing_date,
                a.eodhd_filed_shares, a.share_basis_proxy,
                a.review_reason, ROUND(a.robust_z, 1),
+               ROUND(EXP(a.median_deviation_log_ratio), 2),
                ROUND(EXP(a.adjacent_log_ratio), 2),
                ROUND(EXP(a.cross_source_log_ratio), 2),
                a.priced_days, a.selected_days,
                ROUND(a.max_selected_cap / 1000000000, 2),
                ROUND(a.max_raw_cap / 1000000000, 2),
                a.invalidated
-        FROM silver.share_observation_anomaly_audit a
-        WHERE a.review_reason <> 'no_flag'
-          AND (a.selected_days > 0) = ?
-        ORDER BY COALESCE(a.max_selected_cap, a.max_raw_cap) DESC,
-                 a.security_id, a.shares_filing_date
+        FROM ranked a
+        WHERE a.issue_rank = 1
+        ORDER BY {order}, a.security_id
         LIMIT ?
-    """, [selected, limit]).fetchall()
+    """, [section] * 3 + [limit]).fetchall()
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--limit', type=int, default=30)
+    parser.add_argument('--rank', choices=('z', 'impact'), default='z')
     args = parser.parse_args()
     if args.limit < 1:
         parser.error('--limit must be positive')
     with connect() as con:
         build(con)
         totals = summary(con)
-        selected = queue(con, args.limit, selected=True)
-        other = queue(con, args.limit, selected=False)
+        selected = queue(con, args.limit, section='selected_signal',
+                         rank=args.rank)
+        large = queue(con, args.limit, section='selected_large_cap')
+        other = queue(con, args.limit, section='unselected')
     print('reason | observations | issues | priced_days | selected_days | largest_selected_cap')
     for row in totals:
         print(*row, sep=' | ')
     header = ('security_id | ticker | provider | period | filing | raw_shares | '
-              'split_adjusted_basis | reason | robust_z | adjacent_ratio | '
+              'split_adjusted_basis | reason | robust_z | median_ratio | adjacent_ratio | '
               'cross_source_ratio | priced_days | selected_days | '
               'max_selected_cap_bn | max_raw_cap_bn | already_invalidated')
-    print('SELECTED ANOMALIES (ranked by maximum selected cap)')
+    print(f'SELECTED SIGNALS (one source record per issue, ranked by {args.rank})')
     print(header)
     for row in selected:
         print(*row, sep=' | ')
-    print('UNSELECTED SOURCE ANOMALIES (ranked by maximum raw cap)')
+    print('LARGE SELECTED CAPS WITHOUT INDEPENDENT COMPARISON (one per issue)')
+    print(header)
+    for row in large:
+        print(*row, sep=' | ')
+    print('UNSELECTED SOURCE SIGNALS (one record per issue, ranked by raw cap)')
     print(header)
     for row in other:
         print(*row, sep=' | ')

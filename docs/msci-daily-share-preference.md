@@ -108,13 +108,15 @@ Two additional no-split outliers have source-backed replacements. Run
 the FRG and HYLN priced dates covered by the SEC evidence; `--apply`
 replaces the earlier narrow source-document rows with one Bronze row for
 every priced date in each source's 365-day carry and rebuilds Silver in one
-transaction. The SEC FRG
-2021-11-02 10-Q reports 40,295,469 shares as of 2021-10-29, first usable
-at the next close on 2021-11-03. The SEC HYLN 2021-02-26 10-K reports
+transaction. The SEC FRG 2021-08-03 10-Q reports 40,228,467 shares as of
+2021-07-30, first usable at the next close on 2021-08-04. Its 2021-11-02
+10-Q reports 40,295,469 shares as of 2021-10-29, first usable on
+2021-11-03. The later source supersedes the earlier on that date. The SEC
+HYLN 2021-02-26 10-K reports
 170,255,200 as of 2021-02-23, usable on 2021-02-26. HYLN's EODHD
 104,324,059,000 divided by 1,000 equals a *weighted-average earnings*
 figure, which is not its dated outstanding count. The script requires the
-known original erroneous vendor records, security ID, ticker and identity
+three known original erroneous vendor records, security ID, ticker and identity
 match. In the carry window it marks each EODHD observation at least 100
 times the SEC count as invalid, including subsequent erroneous quarterly
 records; reasonable EODHD observations remain in Bronze but the more recent

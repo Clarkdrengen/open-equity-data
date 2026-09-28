@@ -69,10 +69,38 @@ exact date/code/ISIN single-issue match and one positive RIF Closing-share
 value. From its month-end observation date through day 365, MSCI has priority
 and its shares are adjusted for intervening reconciled splits from the anchor
 price date. The manual source is next. Otherwise, the latest positive EODHD
-balance-sheet count may be used from its filing date through day 365, subject
-to the existing ticker identity ambiguity screen and exact-observation
-invalidation. Cap is dated reconciled close times selected shares; otherwise
-it is null.
+balance-sheet count may be used from its filing date through day 365 **only
+after share-basis and availability checks**, subject to the existing ticker
+identity ambiguity screen and exact-observation invalidation. Cap is dated
+reconciled close times selected shares; otherwise it is null.
+
+`silver.eodhd_share_basis_calibration_candidate` compares EODHD observations
+with dated, unique MSCI snapshots for the same issue. The EODHD retrieval date
+anchors its potential retrospective split basis; two agreeing observations
+with no contradictory evidence are required to establish a retrospective or
+contemporaneous vendor convention. This is an issue-level calibration, not a
+claim that every EODHD fiscal observation is correct. The daily candidate
+retains the original vendor count, its retrieval date, calibration evidence,
+period/price/retrieval split factors, the normalized count and a status. For
+confirmed retrospective counts, normalized shares equal vendor shares times
+the price-date factor divided by the retrieval-date factor. For confirmed
+contemporaneous counts, the denominator is the fiscal-period factor. Where no
+split is recorded between the fiscal period and retrieval, the raw count is
+already on the only recorded basis. Later database prices and split events
+do not change the recorded EODHD retrieval anchor.
+
+EODHD is not selected when its `filing_date` equals its period end, when the
+quote unit may be an ADS/ADR or an unverified foreign reporting-currency
+listing, when MSCI contradicts its shares, or when a split occurred but its
+basis is unverified. These are **candidate exclusions**, not corrected Bronze
+records or assertions that every non-USD issuer is an ADR. MSCI and documented
+manual counts retain their priority. The builder prints counts by EODHD basis
+status and the eight known outlier dates; large coverage losses or remaining
+outliers must be reviewed before the candidate is promoted. An omitted
+corporate action, such as Google's 2014 Class C distribution, can prevent an
+otherwise valid split calibration; it is not silently inferred from the
+share ratio. Verified publication dates and dated ADS ratios remain separate
+source-backed work. No deciles or canonical market-cap replacement are built.
 
 The original open-source Dolt/DoltHub import supplied Bronze `ohlcv`, `split`,
 `dividend`, and `symbol`: the starting price/action/reference source, not a

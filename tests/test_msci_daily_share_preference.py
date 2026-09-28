@@ -44,9 +44,12 @@ def test_month_end_msci_priority_and_365_day_carry_without_future_selection():
                DATE '2020-01-15' AS filing_date,
                DATE '2019-12-31' AS period_date,
                900.0 AS shares_outstanding,
+               'USD' AS currency_symbol,
+               TIMESTAMP '2021-03-01' AS retrieved_at,
                'eodhd_balance_sheet' AS shares_source
         UNION ALL SELECT 'BBB', 'BBB.US', DATE '2020-01-15', DATE '2019-12-31',
-                         700.0, 'eodhd_balance_sheet'
+                         700.0, 'USD', TIMESTAMP '2021-03-01',
+                         'eodhd_balance_sheet'
     """)
     con.execute("""
         CREATE TABLE silver.shares_ticker_identity_diagnostic AS
@@ -76,7 +79,11 @@ def test_month_end_msci_priority_and_365_day_carry_without_future_selection():
     con.execute("""
         INSERT INTO silver.security_daily_split_factor_reconciled VALUES
             (1, DATE '2021-02-26', 1.0),
-            (1, DATE '2021-03-01', 1.0)
+            (1, DATE '2021-03-01', 1.0),
+            (2, DATE '2020-01-14', 1.0),
+            (2, DATE '2020-02-03', 1.0),
+            (2, DATE '2021-01-14', 1.0),
+            (2, DATE '2021-01-15', 1.0)
     """)
     con.execute("""
         CREATE TABLE silver.security_ticker_reference_resolution AS
@@ -224,3 +231,93 @@ def test_month_end_msci_priority_and_365_day_carry_without_future_selection():
         FROM silver.security_daily_market_cap_source_priority_candidate
         WHERE security_id = 1 AND date = DATE '2020-03-06'
     """).fetchone()[0] == 2400.0
+
+
+def test_eodhd_retrospective_split_basis_and_source_date_unit_blocks():
+    con = duckdb.connect()
+    con.execute("CREATE SCHEMA silver")
+    con.execute("""
+        CREATE TABLE silver.msci_m15d_rif_share_overlap_audit AS
+        SELECT 1 AS security_id, 'AAA' AS ticker,
+               observation_date::DATE AS observation_date,
+               observation_date::DATE AS price_date,
+               '1' AS msci_security_code, 'US0000000001' AS isin,
+               1000.0 AS rif_closing_shares,
+               1 AS closing_share_variants, 1 AS project_security_matches,
+               'candidate_exact_code_name' AS identity_status
+        FROM (VALUES ('2020-01-31'), ('2020-02-28')) v(observation_date)
+    """)
+    con.execute("""
+        CREATE TABLE silver.msci_m15e_rif_share_overlap_audit AS
+        SELECT * FROM silver.msci_m15d_rif_share_overlap_audit WHERE FALSE
+    """)
+    con.execute("""
+        CREATE TABLE silver.security_shares_outstanding_effective AS
+        SELECT ticker, ticker || '.US' AS provider_symbol,
+               period_date::DATE AS period_date,
+               filing_date::DATE AS filing_date,
+               shares::DOUBLE AS shares_outstanding,
+               currency AS currency_symbol,
+               TIMESTAMP '2020-07-01' AS retrieved_at,
+               'eodhd_balance_sheet' AS shares_source
+        FROM (VALUES
+            ('AAA', '2019-12-31', '2020-01-15', 10000, 'USD'),
+            ('BBB', '2019-12-31', '2020-01-15', 44000, 'CNY'),
+            ('CCC', '2019-12-31', '2019-12-31', 900, 'USD')
+        ) v(ticker, period_date, filing_date, shares, currency)
+    """)
+    con.execute("""
+        CREATE TABLE silver.shares_ticker_identity_diagnostic AS
+        SELECT ticker, FALSE AS ticker_identity_ambiguous
+        FROM (VALUES ('AAA'), ('BBB'), ('CCC')) v(ticker)
+    """)
+    con.execute("""
+        CREATE TABLE silver.security_daily_ohlcv_reconciled AS
+        SELECT security_id, date::DATE AS date, ticker, 10.0 AS close,
+               'dolt' AS source, TRUE AS research_eligible
+        FROM (VALUES
+            (1, 'AAA', '2020-01-31'), (1, 'AAA', '2020-02-28'),
+            (1, 'AAA', '2020-03-02'), (1, 'AAA', '2020-06-11'),
+            (2, 'BBB', '2020-03-02'), (3, 'CCC', '2020-03-02')
+        ) v(security_id, ticker, date)
+    """)
+    con.execute("""
+        CREATE TABLE silver.security_daily_split_factor_reconciled AS
+        SELECT security_id, date::DATE AS date,
+               factor::DOUBLE AS cumulative_split_multiplier
+        FROM (VALUES
+            (1, '2020-01-31', 1), (1, '2020-02-28', 1),
+            (1, '2020-03-02', 1), (1, '2020-06-11', 10),
+            (1, '2021-01-01', 100),
+            (2, '2020-03-02', 1), (3, '2020-03-02', 1)
+        ) v(security_id, date, factor)
+    """)
+    con.execute("""
+        CREATE TABLE silver.security_ticker_reference_resolution AS
+        SELECT security_id, ticker, ticker AS bronze_security_name,
+               'NYSE' AS resolved_exchange,
+               'Common Stock' AS resolved_instrument_type
+        FROM (VALUES (1, 'AAA'), (2, 'BBB'), (3, 'CCC')) v(security_id, ticker)
+    """)
+    build(con)
+    assert con.execute("""
+        SELECT calibration_status, retrospective_hits
+        FROM silver.eodhd_share_basis_calibration_candidate
+    """).fetchone() == ('retrospective_confirmed', 2)
+    assert con.execute("""
+        SELECT date, eodhd_current_shares_candidate, eodhd_basis_status
+        FROM silver.security_daily_market_cap_source_priority_candidate
+        WHERE security_id = 1 AND date >= DATE '2020-03-01'
+        ORDER BY date
+    """).fetchall() == [
+        (date(2020, 3, 2), 1000.0, 'retrospective_confirmed'),
+        (date(2020, 6, 11), 10000.0, 'retrospective_confirmed'),
+    ]
+    assert con.execute("""
+        SELECT ticker, eodhd_basis_status, selected_source
+        FROM silver.security_daily_market_cap_source_priority_candidate
+        WHERE ticker IN ('BBB', 'CCC') ORDER BY ticker
+    """).fetchall() == [
+        ('BBB', 'quote_share_unit_unverified', 'no_eligible_share_source'),
+        ('CCC', 'publication_date_unverified', 'no_eligible_share_source'),
+    ]

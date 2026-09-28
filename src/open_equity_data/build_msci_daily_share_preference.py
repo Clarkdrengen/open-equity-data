@@ -15,6 +15,10 @@ MANUAL_SCHEMA = (
     Path(__file__).resolve().parents[2]
     / "sql/bronze/create_eodhd_share_manual_adjustment.sql"
 )
+BASIS_SQL = (
+    Path(__file__).resolve().parents[2]
+    / "sql/silver/create_eodhd_share_basis_calibration_candidate.sql"
+)
 
 
 SNAPSHOT_SQL = """
@@ -54,12 +58,20 @@ WITH base AS (
            o.shares_outstanding AS eodhd_filed_shares,
            o.provider_symbol AS eodhd_provider_symbol,
            o.shares_source AS eodhd_share_source,
+           o.currency_symbol AS eodhd_reporting_currency,
+           o.retrieved_at AS eodhd_retrieved_at,
            o.filing_date AS shares_filing_date,
            o.period_date AS shares_period_date,
            date_diff('day', o.filing_date, px.date) AS shares_age_days,
            COALESCE(i.ticker_identity_ambiguous, FALSE)
                AS ticker_identity_ambiguous,
            f.cumulative_split_multiplier AS current_split_multiplier,
+           fp.cumulative_split_multiplier AS period_split_multiplier,
+           ef.cumulative_split_multiplier AS final_split_factor,
+           bc.calibration_status AS eodhd_calibration_status,
+           bc.comparable_snapshots AS eodhd_comparable_snapshots,
+           r.bronze_security_name,
+           r.resolved_exchange,
            m.sourced_shares AS manual_shares,
            m.shares_as_of_date AS manual_as_of_date,
            m.source_publication_date AS manual_publication_date,
@@ -91,6 +103,15 @@ WITH base AS (
       ON i.ticker = px.ticker
     LEFT JOIN silver.security_daily_split_factor_reconciled f
       ON f.security_id = px.security_id AND f.date = px.date
+    ASOF LEFT JOIN silver.security_daily_split_factor_reconciled fp
+      ON fp.security_id = px.security_id AND o.period_date >= fp.date
+    ASOF LEFT JOIN silver.security_daily_split_factor_reconciled ef
+      ON ef.security_id = px.security_id
+     AND CAST(o.retrieved_at AS DATE) >= ef.date
+    LEFT JOIN silver.eodhd_share_basis_calibration_candidate bc
+      ON bc.security_id = px.security_id
+    LEFT JOIN silver.security_ticker_reference_resolution r
+      ON r.security_id = px.security_id AND r.ticker = px.ticker
 ), attached AS (
     SELECT b.*, s.family, s.observation_date AS msci_snapshot_date,
            s.price_date AS msci_anchor_price_date,
@@ -113,15 +134,61 @@ WITH base AS (
            AND shares_age_days BETWEEN 0 AND 365
            AND NOT COALESCE(ticker_identity_ambiguous, FALSE)
                AS eodhd_within_365_days,
+           CASE
+             WHEN eodhd_filed_shares IS NULL THEN 'no_source_count'
+             WHEN shares_filing_date <= shares_period_date
+               THEN 'publication_date_unverified'
+             WHEN regexp_matches(UPPER(COALESCE(bronze_security_name, '')),
+                    'DEPOSITARY|DEPOSITORY|\\bADS\\b|\\bADR\\b')
+               OR (resolved_exchange IN ('NYSE', 'NASDAQ')
+                   AND eodhd_reporting_currency IS NOT NULL
+                   AND eodhd_reporting_currency <> 'USD')
+               THEN 'quote_share_unit_unverified'
+             WHEN eodhd_calibration_status = 'cross_source_conflict'
+               THEN 'cross_source_conflict'
+             WHEN final_split_factor IS NULL OR current_split_multiplier IS NULL
+               THEN 'missing_split_factor'
+             WHEN ABS(LN(final_split_factor /
+                         COALESCE(period_split_multiplier, 1.0))) <= LN(1.01)
+               THEN 'no_later_recorded_split'
+             WHEN eodhd_calibration_status = 'retrospective_confirmed'
+               THEN 'retrospective_confirmed'
+             WHEN eodhd_calibration_status = 'contemporaneous_confirmed'
+               THEN 'contemporaneous_confirmed'
+             ELSE 'split_basis_unverified'
+           END AS eodhd_basis_status,
            manual_shares > 0
            AND date_diff('day', manual_publication_date, date) BETWEEN 0 AND 365
                AS manual_within_365_days
     FROM attached
+), normalized AS (
+    SELECT *,
+           CASE
+             WHEN eodhd_basis_status = 'retrospective_confirmed'
+               THEN eodhd_filed_shares * current_split_multiplier
+                    / final_split_factor
+             WHEN eodhd_basis_status = 'contemporaneous_confirmed'
+               THEN eodhd_filed_shares * current_split_multiplier
+                    / COALESCE(period_split_multiplier, 1.0)
+             WHEN eodhd_basis_status = 'no_later_recorded_split'
+               THEN eodhd_filed_shares
+           END AS eodhd_normalized_shares,
+           eodhd_within_365_days
+             AND eodhd_basis_status IN (
+               'retrospective_confirmed', 'contemporaneous_confirmed',
+               'no_later_recorded_split')
+             AND NOT eodhd_observation_invalidated AS eodhd_eligible
+    FROM classified
 )
 SELECT security_id, date, ticker, family, msci_snapshot_date,
        msci_anchor_price_date, msci_security_code, isin,
        msci_snapshot_shares, eodhd_filed_shares, eodhd_provider_symbol,
        eodhd_share_source,
+       eodhd_reporting_currency, eodhd_retrieved_at,
+       eodhd_calibration_status,
+       eodhd_comparable_snapshots, eodhd_basis_status,
+       current_split_multiplier, period_split_multiplier, final_split_factor,
+       eodhd_normalized_shares,
        manual_shares, manual_as_of_date,
        manual_publication_date, manual_source_name,
        manual_source_url, manual_document_id,
@@ -135,33 +202,28 @@ SELECT security_id, date, ticker, family, msci_snapshot_date,
                  / anchor_split_multiplier END AS msci_current_shares_candidate,
        CASE WHEN manual_within_365_days
             THEN manual_shares END AS manual_current_shares_candidate,
-       CASE WHEN eodhd_within_365_days
-                 AND NOT eodhd_observation_invalidated
-            THEN eodhd_filed_shares END AS eodhd_current_shares_candidate,
+       CASE WHEN eodhd_eligible
+            THEN eodhd_normalized_shares END AS eodhd_current_shares_candidate,
        CASE WHEN msci_within_365_days THEN 'msci'
             WHEN manual_within_365_days THEN 'manual_sourced'
-            WHEN eodhd_within_365_days
-                 AND NOT eodhd_observation_invalidated
+            WHEN eodhd_eligible
                  THEN 'eodhd'
             ELSE 'no_eligible_share_source' END AS selected_source,
        CASE WHEN msci_within_365_days
             THEN msci_snapshot_shares * current_split_multiplier
                  / anchor_split_multiplier
             WHEN manual_within_365_days THEN manual_shares
-            WHEN eodhd_within_365_days
-                 AND NOT eodhd_observation_invalidated
-            THEN eodhd_filed_shares
+            WHEN eodhd_eligible THEN eodhd_normalized_shares
             END AS selected_shares_candidate,
        CASE WHEN close > 0 AND msci_within_365_days
             THEN close * msci_snapshot_shares * current_split_multiplier
                  / anchor_split_multiplier
             WHEN close > 0 AND manual_within_365_days
             THEN close * manual_shares
-            WHEN close > 0 AND eodhd_within_365_days
-                 AND NOT eodhd_observation_invalidated
-            THEN close * eodhd_filed_shares
+            WHEN close > 0 AND eodhd_eligible
+            THEN close * eodhd_normalized_shares
             END AS market_cap_candidate
-FROM classified
+FROM normalized
 """
 
 
@@ -188,6 +250,7 @@ def build(con, *, manage_transaction=True):
         if duplicate_date:
             raise ValueError(f"Duplicate security/date manual shares: {duplicate_date}")
         con.execute(SNAPSHOT_SQL)
+        con.execute(BASIS_SQL.read_text())
         con.execute(DAILY_SQL)
         for lag in (1, 5, 22):
             con.execute(f"DROP TABLE IF EXISTS silver.msci_daily_share_preference_lag{lag}_candidate")
@@ -243,18 +306,55 @@ def top_eodhd_outliers(con, limit: int = 12):
     """, [limit]).fetchall()
 
 
+def basis_impact(con):
+    return con.execute("""
+        SELECT eodhd_basis_status, COUNT(*) AS issue_days,
+               COUNT(DISTINCT security_id) AS issues,
+               COUNT(*) FILTER (WHERE selected_source = 'eodhd')
+                   AS selected_eodhd_days,
+               MAX(close * eodhd_filed_shares) AS largest_raw_cap
+        FROM silver.security_daily_market_cap_source_priority_candidate
+        WHERE eodhd_within_365_days AND eodhd_filed_shares > 0
+        GROUP BY 1 ORDER BY issue_days DESC
+    """).fetchall()
+
+
+def known_outlier_status(con):
+    return con.execute("""
+        SELECT ticker, date, eodhd_basis_status,
+               eodhd_calibration_status, selected_source,
+               eodhd_filed_shares, eodhd_normalized_shares,
+               market_cap_candidate
+        FROM silver.security_daily_market_cap_source_priority_candidate
+        WHERE (security_id, date) IN (
+            (13830, DATE '2024-06-05'), (8369, DATE '2014-02-26'),
+            (3550, DATE '2011-04-04'), (8368, DATE '2015-10-29'),
+            (62, DATE '2011-01-14'), (21037, DATE '2024-11-11'),
+            (1680, DATE '2024-06-17'), (17368, DATE '2019-07-01')
+        ) ORDER BY ticker
+    """).fetchall()
+
+
 def main():
     with connect() as con:
         rows = build(con)
+        impact = basis_impact(con)
+        known = known_outlier_status(con)
         outliers = top_eodhd_outliers(con)
     print("selected_source | issue_days | issues | priced_issue_days | largest_cap_candidate")
     for row in rows:
+        print(*row, sep=" | ")
+    print("EODHD BASIS STATUS | issue_days | issues | selected_eodhd_days | largest_raw_cap")
+    for row in impact:
+        print(*row, sep=" | ")
+    print("KNOWN OUTLIERS | date | basis | calibration | selected | raw_shares | normalized_shares | cap")
+    for row in known:
         print(*row, sep=" | ")
     print("TOP DISTINCT EODHD CAP CANDIDATES")
     print("date | security_id | ticker | name | instrument_type | exchange | cap | close | shares | filing_date | period_date | shares_age_days | price_source | share_source")
     for row in outliers:
         print(*row, sep=" | ")
-    print("Candidate only: MSCI month-end close is effective on its calculation date; third-priority shares and cap outliers remain unresolved.")
+    print("Candidate only: EODHD share basis is calibrated against dated MSCI evidence; unresolved values stay visible but are not selected.")
 
 
 if __name__ == "__main__":

@@ -1,7 +1,7 @@
 """Build dated MSCI/EODHD daily shares and market-cap candidates.
 
-This is a source-priority sensitivity, not a PIT release-date assertion or a
-canonical market-cap replacement.
+MSCI observations represent the close at the end of their calculation month.
+This is a source-priority candidate, not a canonical market-cap replacement.
 """
 
 from __future__ import annotations
@@ -26,25 +26,11 @@ WITH all_sources AS (
         PARTITION BY security_id, observation_date
     ) AS same_issue_snapshot_rows
     FROM all_sources
-), calendar AS (
-    SELECT date, ROW_NUMBER() OVER (ORDER BY date) AS session_number
-    FROM (
-        SELECT DISTINCT date FROM silver.security_daily_ohlcv_reconciled
-    )
-), first_after AS (
-    SELECT s.observation_date, MIN(c.session_number) AS first_session
-    FROM (SELECT DISTINCT observation_date FROM unique_source) s
-    JOIN calendar c ON c.date > s.observation_date
-    GROUP BY 1
 )
-SELECT s.*, f.cumulative_split_multiplier AS anchor_split_multiplier,
-       a.first_session AS effective_session_1,
-       a.first_session + 4 AS effective_session_5,
-       a.first_session + 21 AS effective_session_22
+SELECT s.*, f.cumulative_split_multiplier AS anchor_split_multiplier
 FROM unique_source s
 LEFT JOIN silver.security_daily_split_factor_reconciled f
   ON f.security_id = s.security_id AND f.date = s.price_date
-LEFT JOIN first_after a USING (observation_date)
 WHERE s.identity_status = 'candidate_exact_code_name'
   AND s.project_security_matches = 1
   AND s.closing_share_variants = 1
@@ -53,19 +39,10 @@ WHERE s.identity_status = 'candidate_exact_code_name'
 """
 
 
-def daily_sql(lag: int) -> str:
-    if lag not in (1, 5, 22):
-        raise ValueError("Unsupported availability sensitivity")
-    effective = f"effective_session_{lag}"
-    return f"""
-CREATE OR REPLACE TABLE silver.msci_daily_share_preference_lag{lag}_candidate AS
-WITH calendar AS (
-    SELECT date, ROW_NUMBER() OVER (ORDER BY date) AS session_number
-    FROM (
-        SELECT DISTINCT date FROM silver.security_daily_ohlcv_reconciled
-    )
-), base AS (
-    SELECT px.security_id, px.date, px.ticker, c.session_number,
+DAILY_SQL = """
+CREATE OR REPLACE TABLE silver.security_daily_market_cap_source_priority_candidate AS
+WITH base AS (
+    SELECT px.security_id, px.date, px.ticker,
            o.shares_outstanding AS eodhd_filed_shares,
            o.shares_source AS eodhd_share_source,
            o.filing_date AS shares_filing_date,
@@ -77,7 +54,6 @@ WITH calendar AS (
            px.close, px.source AS price_source,
            px.research_eligible AS price_research_eligible
     FROM silver.security_daily_ohlcv_reconciled px
-    JOIN calendar c ON c.date = px.date
     ASOF LEFT JOIN silver.security_shares_outstanding_effective o
       ON px.ticker = o.ticker AND px.date >= o.filing_date
     LEFT JOIN silver.shares_ticker_identity_diagnostic i
@@ -93,7 +69,7 @@ WITH calendar AS (
     FROM base b
     ASOF LEFT JOIN silver.msci_preferred_share_snapshot_candidate s
       ON b.security_id = s.security_id
-     AND b.session_number >= s.{effective}
+     AND b.date >= s.observation_date
 ), classified AS (
     SELECT *,
            msci_snapshot_date IS NOT NULL
@@ -137,33 +113,74 @@ FROM classified
 
 
 def build(con):
-    con.execute(SNAPSHOT_SQL)
-    for lag in (1, 5, 22):
-        con.execute(daily_sql(lag))
-    return con.execute("""
-        SELECT lag, selected_source, COUNT(*) AS issue_days,
+    con.execute("BEGIN TRANSACTION")
+    try:
+        con.execute(SNAPSHOT_SQL)
+        con.execute(DAILY_SQL)
+        for lag in (1, 5, 22):
+            con.execute(f"DROP TABLE IF EXISTS silver.msci_daily_share_preference_lag{lag}_candidate")
+        rows = con.execute("""
+        SELECT selected_source, COUNT(*) AS issue_days,
                COUNT(DISTINCT security_id) AS issues,
                COUNT(*) FILTER (WHERE market_cap_candidate > 0)
                    AS priced_issue_days,
                MAX(market_cap_candidate) AS largest_cap_candidate
-        FROM (
-            SELECT 1 AS lag, * FROM silver.msci_daily_share_preference_lag1_candidate
-            UNION ALL
-            SELECT 5 AS lag, * FROM silver.msci_daily_share_preference_lag5_candidate
-            UNION ALL
-            SELECT 22 AS lag, * FROM silver.msci_daily_share_preference_lag22_candidate
+        FROM silver.security_daily_market_cap_source_priority_candidate
+        GROUP BY 1 ORDER BY 1
+        """).fetchall()
+        con.execute("COMMIT")
+        return rows
+    except Exception:
+        con.execute("ROLLBACK")
+        raise
+
+
+def top_eodhd_outliers(con, limit: int = 12):
+    """One peak dated observation per issue; no remediation is applied."""
+    return con.execute("""
+        WITH top_issues AS (
+            SELECT security_id, MAX(market_cap_candidate) AS peak_cap
+            FROM silver.security_daily_market_cap_source_priority_candidate
+            WHERE selected_source = 'eodhd' AND market_cap_candidate > 0
+            GROUP BY security_id
+            ORDER BY peak_cap DESC
+            LIMIT ?
+        ), peaks AS (
+            SELECT c.*,
+                   ROW_NUMBER() OVER (
+                       PARTITION BY c.security_id ORDER BY c.date
+                   ) AS rn
+            FROM top_issues t
+            JOIN silver.security_daily_market_cap_source_priority_candidate c
+              ON c.security_id = t.security_id
+             AND c.market_cap_candidate = t.peak_cap
         )
-        GROUP BY 1, 2 ORDER BY 1, 2
-    """).fetchall()
+        SELECT c.date, c.security_id, c.ticker,
+               r.bronze_security_name, r.resolved_instrument_type,
+               r.resolved_exchange, c.market_cap_candidate, c.close,
+               c.selected_shares_candidate, c.shares_filing_date,
+               c.shares_period_date, c.shares_age_days,
+               c.price_source, c.eodhd_share_source
+        FROM peaks c
+        LEFT JOIN silver.security_ticker_reference_resolution r
+          ON r.security_id = c.security_id AND r.ticker = c.ticker
+        WHERE c.rn = 1
+        ORDER BY c.market_cap_candidate DESC
+    """, [limit]).fetchall()
 
 
 def main():
     with connect() as con:
         rows = build(con)
-    print("lag_sessions | selected_source | issue_days | issues | priced_issue_days | largest_cap_candidate")
+        outliers = top_eodhd_outliers(con)
+    print("selected_source | issue_days | issues | priced_issue_days | largest_cap_candidate")
     for row in rows:
         print(*row, sep=" | ")
-    print("Candidate only: MSCI release timing and third-priority source require review.")
+    print("TOP DISTINCT EODHD CAP CANDIDATES")
+    print("date | security_id | ticker | name | instrument_type | exchange | cap | close | shares | filing_date | period_date | shares_age_days | price_source | share_source")
+    for row in outliers:
+        print(*row, sep=" | ")
+    print("Candidate only: MSCI month-end close is effective on its calculation date; third-priority shares and cap outliers remain unresolved.")
 
 
 if __name__ == "__main__":

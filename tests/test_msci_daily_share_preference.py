@@ -2,10 +2,13 @@ from datetime import date
 
 import duckdb
 
-from open_equity_data.build_msci_daily_share_preference import build
+from open_equity_data.build_msci_daily_share_preference import (
+    build,
+    top_eodhd_outliers,
+)
 
 
-def test_msci_source_priority_waits_for_selected_session_and_keeps_previous_snapshot():
+def test_month_end_msci_priority_and_365_day_carry_without_future_selection():
     con = duckdb.connect()
     con.execute("CREATE SCHEMA silver")
     con.execute("""
@@ -13,7 +16,7 @@ def test_msci_source_priority_waits_for_selected_session_and_keeps_previous_snap
         SELECT 1 AS security_id, date::DATE AS date, 'AAA' AS ticker,
                TRUE AS primary_research_eligible_exchange
         FROM UNNEST([
-            '2020-01-31', '2020-02-03', '2020-02-04', '2020-02-05',
+            '2020-01-30', '2020-01-31', '2020-02-03', '2020-02-04', '2020-02-05',
             '2020-02-06', '2020-02-07', '2020-02-28', '2020-03-02',
             '2020-03-03', '2020-03-04', '2020-03-05', '2020-03-06'
         ]) AS t(date)
@@ -74,49 +77,51 @@ def test_msci_source_priority_waits_for_selected_session_and_keeps_previous_snap
             (1, DATE '2021-02-26', 1.0),
             (1, DATE '2021-03-01', 1.0)
     """)
+    con.execute("""
+        CREATE TABLE silver.security_ticker_reference_resolution AS
+        SELECT 1 AS security_id, 'AAA' AS ticker,
+               'Alpha' AS bronze_security_name,
+               'Common Stock' AS resolved_instrument_type,
+               'NYSE' AS resolved_exchange
+        UNION ALL SELECT 2, 'BBB', 'Beta', 'Common Stock', 'NASDAQ'
+    """)
     rows = build(con)
-    assert any(row[0:2] == (1, 'msci') for row in rows)
-    lag1 = con.execute("""
+    assert any(row[0] == 'msci' for row in rows)
+    peaks = top_eodhd_outliers(con, 2)
+    assert [r[2] for r in peaks] == ['AAA', 'BBB']
+    assert peaks[1][6:9] == (3500.0, 5.0, 700.0)
+    selected = con.execute("""
         SELECT date, msci_snapshot_date, msci_current_shares_candidate,
                selected_source
-        FROM silver.msci_daily_share_preference_lag1_candidate
+        FROM silver.security_daily_market_cap_source_priority_candidate
         WHERE security_id = 1
-          AND date IN (DATE '2020-01-31', DATE '2020-02-03', DATE '2020-03-02')
+          AND date IN (DATE '2020-01-30', DATE '2020-01-31',
+                       DATE '2020-02-03', DATE '2020-02-28',
+                       DATE '2020-03-02')
         ORDER BY date
     """).fetchall()
-    assert lag1[0][1:] == (None, None, 'eodhd')
-    assert lag1[1][2:] == (1000.0, 'msci')
-    assert lag1[2][2:] == (1200.0, 'msci')
+    assert selected[0][1:] == (None, None, 'eodhd')
+    assert selected[1][2:] == (1000.0, 'msci')
+    assert selected[2][2:] == (1000.0, 'msci')
+    assert selected[3][2:] == (1200.0, 'msci')
+    assert selected[4][2:] == (1200.0, 'msci')
     assert con.execute("""
         SELECT market_cap_candidate
-        FROM silver.msci_daily_share_preference_lag1_candidate
+        FROM silver.security_daily_market_cap_source_priority_candidate
         WHERE date = DATE '2020-03-02'
     """).fetchone()[0] == 12_000.0
-    lag5 = con.execute("""
-        SELECT date, msci_snapshot_date, msci_current_shares_candidate
-        FROM silver.msci_daily_share_preference_lag5_candidate
-        WHERE security_id = 1 AND date IN (DATE '2020-02-06', DATE '2020-02-07',
-                       DATE '2020-03-02', DATE '2020-03-06')
-        ORDER BY date
-    """).fetchall()
-    assert [r[2] for r in lag5] == [None, 1000.0, 1000.0, 1200.0]
-    assert con.execute("""
-        SELECT COUNT(*) FROM silver.msci_daily_share_preference_lag22_candidate
-        WHERE date <= DATE '2020-03-06'
-          AND msci_current_shares_candidate IS NOT NULL
-    """).fetchone()[0] == 0
 
     # Base rows are all dated prices, including a security absent from MSCI
     # and a price row outside the research eligibility table.
     assert con.execute("""
         SELECT selected_source, market_cap_candidate,
                price_source, eodhd_share_source
-        FROM silver.msci_daily_share_preference_lag1_candidate
+        FROM silver.security_daily_market_cap_source_priority_candidate
         WHERE security_id = 2 AND date = DATE '2020-02-03'
     """).fetchone() == ('eodhd', 3500.0, 'dolt', 'eodhd_balance_sheet')
     assert con.execute("""
         SELECT date, selected_source FROM
-            silver.msci_daily_share_preference_lag1_candidate
+            silver.security_daily_market_cap_source_priority_candidate
         WHERE security_id = 2
         ORDER BY date
     """).fetchall() == [
@@ -127,12 +132,12 @@ def test_msci_source_priority_waits_for_selected_session_and_keeps_previous_snap
     ]
     assert con.execute("""
         SELECT selected_source, msci_current_shares_candidate
-        FROM silver.msci_daily_share_preference_lag1_candidate
+        FROM silver.security_daily_market_cap_source_priority_candidate
         WHERE date = DATE '2021-02-26'
     """).fetchone() == ('msci', 1200.0)
     assert con.execute("""
         SELECT selected_source, market_cap_candidate
-        FROM silver.msci_daily_share_preference_lag1_candidate
+        FROM silver.security_daily_market_cap_source_priority_candidate
         WHERE date = DATE '2021-03-01'
     """).fetchone() == ('no_eligible_share_source', None)
 
@@ -147,11 +152,11 @@ def test_msci_source_priority_waits_for_selected_session_and_keeps_previous_snap
     build(con)
     assert con.execute("""
         SELECT selected_source, msci_current_shares_candidate
-        FROM silver.msci_daily_share_preference_lag1_candidate
+        FROM silver.security_daily_market_cap_source_priority_candidate
         WHERE date = DATE '2020-03-02'
     """).fetchone() == ('msci', 1200.0)
     assert con.execute("""
         SELECT msci_current_shares_candidate
-        FROM silver.msci_daily_share_preference_lag5_candidate
+        FROM silver.security_daily_market_cap_source_priority_candidate
         WHERE date = DATE '2020-03-06'
     """).fetchone()[0] == 2400.0

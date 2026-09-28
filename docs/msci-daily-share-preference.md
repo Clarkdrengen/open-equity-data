@@ -143,6 +143,13 @@ rule. The script refuses missing or duplicate sources. Its final 20 largest
 EODHD caps form an audit queue; these replacements do not certify the rest
 of the universe.
 
+If the earlier FRG and HYLN cohorts have already been applied, use
+`--apply-frg-2022` to write **only** the November 2022 FRG cohort to Bronze.
+It verifies the initial bad EODHD record, refuses an overlapping adjustment
+from another source document, rebuilds Silver transactionally, and checks
+that all staged FRG dates select the SEC count. Existing FRG and HYLN
+Bronze rows remain untouched.
+
 The original open-source Dolt/DoltHub import supplied Bronze `ohlcv`, `split`,
 `dividend`, and `symbol`: the starting price/action/reference source, not a
 verified outstanding-share source. EODHD also supplies some corrected or

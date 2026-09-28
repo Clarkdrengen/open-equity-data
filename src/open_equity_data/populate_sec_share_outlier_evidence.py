@@ -7,6 +7,7 @@ Silver candidate transactionally. It does not rescale the vendor's raw facts.
 from __future__ import annotations
 
 import argparse
+from datetime import date
 
 from open_equity_data.build_msci_daily_share_preference import (
     MANUAL_SCHEMA,
@@ -22,6 +23,7 @@ DOCUMENT_IDS = (
     '0001528930-22-000046',
     '0001213900-21-011788',
 )
+FRG_2022_DOCUMENT_ID = '0001528930-22-000046'
 
 STAGE_SQL = """
 CREATE OR REPLACE TEMP TABLE sec_share_outlier_stage AS
@@ -184,16 +186,93 @@ def apply(con):
         raise
 
 
+def apply_frg_2022(con):
+    """Apply only the approved November 2022 FRG cohort; retain prior rows."""
+    con.execute(MANUAL_SCHEMA.read_text())
+    preview = con.execute("""
+        SELECT COUNT(*), MIN(price_date), MAX(price_date),
+               COUNT(*) FILTER (WHERE target_shares = 39941287000.0)
+        FROM sec_share_outlier_stage
+        WHERE security_id = 7430 AND ticker = 'FRG'
+          AND source_document_id = ? AND sourced_shares = 38205831.0
+          AND source_publication_date = DATE '2022-11-03'
+    """, [FRG_2022_DOCUMENT_ID]).fetchone()
+    if preview[0] < 1 or preview[1] != date(2022, 11, 4) or preview[3] < 1:
+        raise ValueError(f'Incomplete FRG 2022 preview: {preview}')
+    conflict = con.execute("""
+        SELECT a.price_date, a.source_document_id
+        FROM bronze.eodhd_share_manual_adjustment a
+        JOIN sec_share_outlier_stage s
+          ON a.security_id = s.security_id AND a.price_date = s.price_date
+        WHERE s.source_document_id = ?
+          AND a.source_document_id <> s.source_document_id
+        LIMIT 1
+    """, [FRG_2022_DOCUMENT_ID]).fetchone()
+    if conflict:
+        raise ValueError(f'Existing dated Bronze adjustment conflicts: {conflict}')
+    con.execute('BEGIN TRANSACTION')
+    try:
+        con.execute("""
+            DELETE FROM bronze.eodhd_share_manual_adjustment
+            WHERE security_id = 7430 AND source_document_id = ?
+        """, [FRG_2022_DOCUMENT_ID])
+        con.execute("""
+            INSERT INTO bronze.eodhd_share_manual_adjustment (
+                security_id, ticker, price_date, target_provider_symbol,
+                target_period_date, target_filing_date, target_shares,
+                sourced_shares, shares_as_of_date, source_publication_date,
+                source_name, source_url, source_document_id, source_excerpt,
+                source_document_sha256, recorded_at)
+            SELECT security_id, ticker, price_date, target_provider_symbol,
+                   target_period_date, target_filing_date, target_shares,
+                   sourced_shares, shares_as_of_date, source_publication_date,
+                   source_name, source_url, source_document_id, source_excerpt,
+                   NULL, current_timestamp
+            FROM sec_share_outlier_stage WHERE source_document_id = ?
+        """, [FRG_2022_DOCUMENT_ID])
+        build(con, manage_transaction=False)
+        mismatch = con.execute("""
+            SELECT s.price_date, c.selected_source, c.selected_shares_candidate
+            FROM sec_share_outlier_stage s
+            LEFT JOIN silver.security_daily_market_cap_source_priority_candidate c
+              ON c.security_id = s.security_id AND c.date = s.price_date
+            WHERE s.source_document_id = ?
+              AND (c.security_id IS NULL OR c.selected_source <> 'manual_sourced'
+                   OR c.selected_shares_candidate <> s.sourced_shares)
+            LIMIT 1
+        """, [FRG_2022_DOCUMENT_ID]).fetchone()
+        if mismatch:
+            raise ValueError(f'FRG 2022 Silver selection mismatch: {mismatch}')
+        result = con.execute("""
+            SELECT COUNT(*), MIN(c.date), MAX(c.date), MAX(c.market_cap_candidate)
+            FROM silver.security_daily_market_cap_source_priority_candidate c
+            JOIN sec_share_outlier_stage s
+              ON s.security_id = c.security_id AND s.price_date = c.date
+            WHERE s.source_document_id = ?
+        """, [FRG_2022_DOCUMENT_ID]).fetchone()
+        con.execute('COMMIT')
+        return result
+    except Exception:
+        con.execute('ROLLBACK')
+        raise
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--apply', action='store_true')
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument('--apply', action='store_true')
+    mode.add_argument('--apply-frg-2022', action='store_true',
+                      help='Only apply the November 2022 FRG SEC cohort')
     args = parser.parse_args()
     with connect() as con:
         con.execute(MANUAL_SCHEMA.read_text())
         print('ticker | SEC accession | sourced shares | dates | first | last | bad EODHD records | flagged dates')
         for row in stage(con):
             print(*row, sep=' | ')
-        if args.apply:
+        if args.apply_frg_2022:
+            print('FRG 2022 selected days | first | last | peak cap:',
+                  apply_frg_2022(con))
+        elif args.apply:
             print('Rebuilt selected sources:', apply(con))
             print('Remaining largest EODHD cap candidates (review queue):')
             for row in top_eodhd_outliers(con, 20):

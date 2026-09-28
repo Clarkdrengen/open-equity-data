@@ -3,6 +3,7 @@ from datetime import date
 import duckdb
 
 from open_equity_data.populate_sec_share_outlier_evidence import stage
+import open_equity_data.populate_sec_share_outlier_evidence as module
 
 
 def test_staged_replacements_are_dated_and_target_only_exact_vendor_record():
@@ -79,4 +80,72 @@ def test_staged_replacements_are_dated_and_target_only_exact_vendor_record():
         ('FRG', date(2023, 2, 2), 38205831.0, 39941287000.0),
         ('HYLN', date(2021, 2, 26), 170255200.0,
          104324059000.0),
+    ]
+
+
+def test_frg_2022_application_preserves_other_bronze_rows(monkeypatch):
+    con = duckdb.connect()
+    con.execute('CREATE SCHEMA silver')
+    con.execute(module.MANUAL_SCHEMA.read_text())
+    con.execute("""
+        INSERT INTO bronze.eodhd_share_manual_adjustment (
+            security_id, ticker, sourced_shares, shares_as_of_date,
+            source_publication_date, source_name, source_url,
+            source_document_id, source_excerpt, recorded_at, price_date)
+        VALUES (9376, 'HYLN', 170255200, DATE '2021-02-23',
+                DATE '2021-02-26', 'SEC', 'https://sec.gov/hyln',
+                'older-hyln', '170,255,200', current_timestamp,
+                DATE '2021-02-26')
+    """)
+    con.execute("""
+        CREATE TEMP TABLE sec_share_outlier_stage AS
+        SELECT security_id, ticker, price_date,
+               ticker || '.US' AS target_provider_symbol,
+               DATE '2022-09-30' AS target_period_date,
+               DATE '2022-11-03' AS target_filing_date,
+               39941287000.0 AS target_shares,
+               38205831.0 AS sourced_shares,
+               DATE '2022-10-31' AS shares_as_of_date,
+               DATE '2022-11-03' AS source_publication_date,
+               'SEC 10-Q' AS source_name,
+               'https://www.sec.gov/example' AS source_url,
+               '0001528930-22-000046' AS source_document_id,
+               '38,205,831 common shares' AS source_excerpt
+        FROM (VALUES
+            (7430, 'FRG', DATE '2022-11-04'),
+            (7430, 'FRG', DATE '2023-02-02')
+        ) v(security_id, ticker, price_date)
+    """)
+    con.execute("""
+        CREATE TABLE silver.security_daily_market_cap_source_priority_candidate AS
+        SELECT security_id, price_date AS date, 'eodhd' AS selected_source,
+               39941287000.0 AS selected_shares_candidate,
+               32.66 * 39941287000.0 AS market_cap_candidate
+        FROM sec_share_outlier_stage
+    """)
+
+    def rebuild(conn, *, manage_transaction):
+        assert not manage_transaction
+        conn.execute("""
+            UPDATE silver.security_daily_market_cap_source_priority_candidate c
+               SET selected_source = 'manual_sourced',
+                   selected_shares_candidate = 38205831.0,
+                   market_cap_candidate = 32.66 * 38205831.0
+            WHERE EXISTS (
+                SELECT 1 FROM bronze.eodhd_share_manual_adjustment a
+                WHERE a.security_id = c.security_id AND a.price_date = c.date
+                  AND a.source_document_id = '0001528930-22-000046'
+            )
+        """)
+    monkeypatch.setattr(module, 'build', rebuild)
+    assert module.apply_frg_2022(con)[:3] == (
+        2, date(2022, 11, 4), date(2023, 2, 2))
+    assert module.apply_frg_2022(con)[0] == 2
+    assert con.execute("""
+        SELECT ticker, source_document_id, COUNT(*)
+        FROM bronze.eodhd_share_manual_adjustment
+        GROUP BY ALL ORDER BY ticker
+    """).fetchall() == [
+        ('FRG', '0001528930-22-000046', 2),
+        ('HYLN', 'older-hyln', 1),
     ]

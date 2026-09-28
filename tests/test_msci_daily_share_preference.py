@@ -12,6 +12,11 @@ def test_month_end_msci_priority_and_365_day_carry_without_future_selection():
     con = duckdb.connect()
     con.execute("CREATE SCHEMA silver")
     con.execute("""
+        CREATE TABLE silver.multi_listed_common_equity_candidate (
+            security_id_a BIGINT, security_id_b BIGINT
+        )
+    """)
+    con.execute("""
         CREATE TABLE silver.research_universe_eligibility AS
         SELECT 1 AS security_id, date::DATE AS date, 'AAA' AS ticker,
                TRUE AS primary_research_eligible_exchange
@@ -237,6 +242,11 @@ def test_eodhd_retrospective_split_basis_and_source_date_unit_blocks():
     con = duckdb.connect()
     con.execute("CREATE SCHEMA silver")
     con.execute("""
+        CREATE TABLE silver.multi_listed_common_equity_candidate (
+            security_id_a BIGINT, security_id_b BIGINT
+        )
+    """)
+    con.execute("""
         CREATE TABLE silver.msci_m15d_rif_share_overlap_audit AS
         SELECT 1 AS security_id, 'AAA' AS ticker,
                observation_date::DATE AS observation_date,
@@ -321,3 +331,14 @@ def test_eodhd_retrospective_split_basis_and_source_date_unit_blocks():
         ('BBB', 'quote_share_unit_unverified', 'no_eligible_share_source'),
         ('CCC', 'publication_date_unverified', 'no_eligible_share_source'),
     ]
+    con.execute("""
+        INSERT INTO silver.multi_listed_common_equity_candidate
+        VALUES (1, 2)
+    """)
+    build(con)
+    assert con.execute("""
+        SELECT eodhd_basis_status, eodhd_current_shares_candidate,
+               selected_source
+        FROM silver.security_daily_market_cap_source_priority_candidate
+        WHERE security_id = 1 AND date = DATE '2020-03-02'
+    """).fetchone() == ('multi_issue_issuer_total', None, 'msci')

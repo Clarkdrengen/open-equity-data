@@ -91,8 +91,9 @@ do not change the recorded EODHD retrieval anchor.
 
 EODHD is not selected when its `filing_date` equals its period end, when the
 quote unit may be an ADS/ADR or an unverified foreign reporting-currency
-listing, when MSCI contradicts its shares, or when a split occurred but its
-basis is unverified. These are **candidate exclusions**, not corrected Bronze
+listing, for security IDs in the existing multi-listed common-equity
+candidate set, when MSCI contradicts its shares, or when a split occurred
+but its basis is unverified. These are **candidate exclusions**, not corrected Bronze
 records or assertions that every non-USD issuer is an ADR. MSCI and documented
 manual counts retain their priority. The builder prints counts by EODHD basis
 status and the eight known outlier dates; large coverage losses or remaining

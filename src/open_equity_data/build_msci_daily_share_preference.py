@@ -53,7 +53,13 @@ WHERE s.identity_status = 'candidate_exact_code_name'
 
 DAILY_SQL = """
 CREATE OR REPLACE TABLE silver.security_daily_market_cap_source_priority_candidate AS
-WITH base AS (
+WITH multi_issue AS (
+    SELECT security_id_a AS security_id
+    FROM silver.multi_listed_common_equity_candidate
+    UNION
+    SELECT security_id_b AS security_id
+    FROM silver.multi_listed_common_equity_candidate
+), base AS (
     SELECT px.security_id, px.date, px.ticker,
            o.shares_outstanding AS eodhd_filed_shares,
            o.provider_symbol AS eodhd_provider_symbol,
@@ -72,6 +78,7 @@ WITH base AS (
            bc.comparable_snapshots AS eodhd_comparable_snapshots,
            r.bronze_security_name,
            r.resolved_exchange,
+           (mi.security_id IS NOT NULL) AS multi_issue_issuer_total,
            m.sourced_shares AS manual_shares,
            m.shares_as_of_date AS manual_as_of_date,
            m.source_publication_date AS manual_publication_date,
@@ -112,6 +119,7 @@ WITH base AS (
       ON bc.security_id = px.security_id
     LEFT JOIN silver.security_ticker_reference_resolution r
       ON r.security_id = px.security_id AND r.ticker = px.ticker
+    LEFT JOIN multi_issue mi ON mi.security_id = px.security_id
 ), attached AS (
     SELECT b.*, s.family, s.observation_date AS msci_snapshot_date,
            s.price_date AS msci_anchor_price_date,
@@ -138,6 +146,7 @@ WITH base AS (
              WHEN eodhd_filed_shares IS NULL THEN 'no_source_count'
              WHEN shares_filing_date <= shares_period_date
                THEN 'publication_date_unverified'
+             WHEN multi_issue_issuer_total THEN 'multi_issue_issuer_total'
              WHEN regexp_matches(UPPER(COALESCE(bronze_security_name, '')),
                     'DEPOSITARY|DEPOSITORY|\\bADS\\b|\\bADR\\b')
                OR (resolved_exchange IN ('NYSE', 'NASDAQ')
@@ -187,6 +196,7 @@ SELECT security_id, date, ticker, family, msci_snapshot_date,
        eodhd_reporting_currency, eodhd_retrieved_at,
        eodhd_calibration_status,
        eodhd_comparable_snapshots, eodhd_basis_status,
+       multi_issue_issuer_total,
        current_split_multiplier, period_split_multiplier, final_split_factor,
        eodhd_normalized_shares,
        manual_shares, manual_as_of_date,

@@ -17,6 +17,7 @@ from open_equity_data.db import connect
 
 
 DOCUMENT_IDS = (
+    '0001528930-20-000070',
     '0001528930-21-000043', '0001528930-21-000048',
     '0001213900-21-011788',
 )
@@ -25,6 +26,11 @@ STAGE_SQL = """
 CREATE OR REPLACE TEMP TABLE sec_share_outlier_stage AS
 WITH evidence AS (
     SELECT * FROM (VALUES
+        (7430, 'FRG', DATE '2020-11-04', DATE '2020-11-05',
+         DATE '2020-11-02', 40087792.0, 39692384000.0,
+         '0001528930-20-000070',
+         'https://www.sec.gov/Archives/edgar/data/1528930/000152893020000070/frg-0926202010q.htm',
+         '40,087,792 shares outstanding as of November 2, 2020'),
         (7430, 'FRG', DATE '2021-08-03', DATE '2021-08-04',
          DATE '2021-07-30', 40228467.0, 40905567000.0,
          '0001528930-21-000043',
@@ -99,19 +105,20 @@ def stage(con):
                COUNT(*) FILTER (WHERE target_shares IS NOT NULL)
                    AS flagged_issue_days
         FROM sec_share_outlier_stage
-        GROUP BY 1, 2, 3 ORDER BY 1
+        GROUP BY 1, 2, 3 ORDER BY 1, 5
     """).fetchall()
-    if len(summary) != 3 or any(row[3] == 0 or row[6] == 0 for row in summary):
-        raise ValueError(f"Expected three sourced cohorts and bad EODHD targets; got {summary}")
+    if len(summary) != 4 or any(row[3] == 0 or row[6] == 0 for row in summary):
+        raise ValueError(f"Expected four sourced cohorts and bad EODHD targets; got {summary}")
     initial = con.execute("""
         SELECT ticker, target_shares FROM sec_share_outlier_stage
         WHERE (ticker = 'FRG' AND target_shares IN
-                   (40905567000.0, 40973736000.0))
+                   (39692384000.0, 40905567000.0, 40973736000.0))
            OR (ticker = 'HYLN' AND target_shares = 104324059000.0)
         GROUP BY ticker, target_shares ORDER BY ticker, target_shares
     """).fetchall()
     if initial != [
-        ('FRG', 40905567000.0), ('FRG', 40973736000.0),
+        ('FRG', 39692384000.0), ('FRG', 40905567000.0),
+        ('FRG', 40973736000.0),
         ('HYLN', 104324059000.0),
     ]:
         raise ValueError(f"Original source observations missing: {initial}")
@@ -129,7 +136,7 @@ def apply(con):
         SELECT security_id, ticker, price_date, source_document_id
         FROM bronze.eodhd_share_manual_adjustment
         WHERE security_id IN (7430, 9376)
-          AND source_document_id NOT IN (?, ?, ?) LIMIT 1
+          AND source_document_id NOT IN (?, ?, ?, ?) LIMIT 1
     """, list(DOCUMENT_IDS)).fetchone()
     if existing:
         raise ValueError(f"Another sourced adjustment already exists: {existing}")
@@ -138,7 +145,7 @@ def apply(con):
         con.execute("""
             DELETE FROM bronze.eodhd_share_manual_adjustment
             WHERE security_id IN (7430, 9376)
-              AND source_document_id IN (?, ?, ?)
+              AND source_document_id IN (?, ?, ?, ?)
         """, list(DOCUMENT_IDS))
         con.execute("""
             INSERT INTO bronze.eodhd_share_manual_adjustment (

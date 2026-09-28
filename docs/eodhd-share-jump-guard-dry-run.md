@@ -63,3 +63,24 @@ or new count, a later EODHD return near the prior count, an implausibly tiny
 prior cap requiring review, and unresolved cases. A category is evidence for
 review, **not** approval to change the selected share series. In particular,
 returning to a small prior count can still be an error in the prior count.
+
+## SEC-backed correction preview
+
+`python -m open_equity_data.stage_sec_share_jump_corrections` is a **read-only**
+preview for FRST, EVBN and LHC, three high-impact cases with contemporary SEC
+filing evidence. It proposes only issue-days already flagged by the dry-run
+audit, requires the recorded security name, compares the current EODHD count
+to the SEC count, and chooses the latest filing available at that day's close.
+The EVBN filing was accepted after close on March 4, 2013; its first usable
+price date is March 5. The LHC November 12, 2019 filing was also accepted
+after close; its 20 million shares are **Class A ordinary shares** corresponding
+to NYSE LHC, excluding the separate Class B founder shares. The preview
+prints the proposed target dates, exact source documents, and before/after
+market-cap peaks. It neither writes to Bronze nor changes Silver selection.
+
+Source documents are the FRST August and November 2021 10-Qs, EVBN March
+2013 10-K and LHC November 2019 10-Q; accession numbers and links are kept
+beside the proposal in the staging script. A subsequent approved correction
+would write dated source-backed rows to `bronze.eodhd_share_manual_adjustment`
+and rebuild Silver through code. OPFI is withheld here: the November 2021
+filing distinguishes publicly listed Class A shares from Class V shares.

@@ -126,12 +126,14 @@ transaction. The SEC FRG 2020-11-04 10-Q reports 40,087,792 shares as of
 2021-08-03 10-Q reports 40,228,467 shares as of
 2021-07-30, first usable at the next close on 2021-08-04. Its 2021-11-02
 10-Q reports 40,295,469 shares as of 2021-10-29, first usable on
-2021-11-03. The later source supersedes the earlier on that date. The SEC
+2021-11-03. The 2022-11-03 10-Q reports 38,205,831 shares as of
+2022-10-31, first usable at the next close on 2022-11-04. The later source
+supersedes the earlier on that date. The SEC
 HYLN 2021-02-26 10-K reports
 170,255,200 as of 2021-02-23, usable on 2021-02-26. HYLN's EODHD
 104,324,059,000 divided by 1,000 equals a *weighted-average earnings*
 figure, which is not its dated outstanding count. The script requires the
-four known original erroneous vendor records, security ID, ticker and identity
+five known original erroneous vendor records, security ID, ticker and identity
 match. In the carry window it marks each EODHD observation at least 100
 times the SEC count as invalid, including subsequent erroneous quarterly
 records; reasonable EODHD observations remain in Bronze but the more recent

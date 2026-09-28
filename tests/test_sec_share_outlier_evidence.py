@@ -19,6 +19,8 @@ def test_staged_replacements_are_dated_and_target_only_exact_vendor_record():
           (7430, 'FRG', DATE '2021-11-04'),
           (7430, 'FRG', DATE '2022-02-25'),
           (7430, 'FRG', DATE '2022-03-01'),
+          (7430, 'FRG', DATE '2022-11-04'),
+          (7430, 'FRG', DATE '2023-02-02'),
           (9376, 'HYLN', DATE '2021-02-26')
         ) t(security_id, ticker, date)
     """)
@@ -37,6 +39,8 @@ def test_staged_replacements_are_dated_and_target_only_exact_vendor_record():
            41081519000.0),
           ('FRG', 'FRG.US', DATE '2022-03-01', DATE '2022-01-01',
            42000000.0),
+          ('FRG', 'FRG.US', DATE '2022-11-03', DATE '2022-09-30',
+           39941287000.0),
           ('HYLN', 'HYLN.US', DATE '2021-02-26', DATE '2020-12-31',
            104324059000.0)
         ) t(ticker, provider_symbol, filing_date, period_date,
@@ -51,7 +55,8 @@ def test_staged_replacements_are_dated_and_target_only_exact_vendor_record():
     """)
     result = stage(con)
     assert [(r[0], r[3], r[6]) for r in result] == [
-        ('FRG', 2, 2), ('FRG', 2, 2), ('FRG', 4, 2), ('HYLN', 1, 1),
+        ('FRG', 2, 2), ('FRG', 2, 2), ('FRG', 4, 2),
+        ('FRG', 2, 1), ('HYLN', 1, 1),
     ]
     assert con.execute("""
         SELECT ticker, price_date, sourced_shares, target_shares
@@ -70,6 +75,8 @@ def test_staged_replacements_are_dated_and_target_only_exact_vendor_record():
         ('FRG', date(2021, 11, 4), 40295469.0, None),
         ('FRG', date(2022, 2, 25), 40295469.0, 41081519000.0),
         ('FRG', date(2022, 3, 1), 40295469.0, None),
+        ('FRG', date(2022, 11, 4), 38205831.0, 39941287000.0),
+        ('FRG', date(2023, 2, 2), 38205831.0, 39941287000.0),
         ('HYLN', date(2021, 2, 26), 170255200.0,
          104324059000.0),
     ]

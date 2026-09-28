@@ -404,7 +404,8 @@ def main():
     print("date | security_id | ticker | name | instrument_type | exchange | cap | close | shares | filing_date | period_date | shares_age_days | price_source | share_source")
     for row in outliers:
         print(*row, sep=" | ")
-    print("Candidate only: EODHD share basis is calibrated against dated MSCI evidence; unresolved values stay visible but are not selected.")
+    print("Candidate only: 100x EODHD jumps are guarded; first bad records, "
+          "split boundaries, and other cap outliers still require review.")
 
 
 if __name__ == "__main__":

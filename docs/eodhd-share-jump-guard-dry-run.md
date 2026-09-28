@@ -40,3 +40,26 @@ may have its own retrospective evidence. A separate date-aware review of that
 calibration is needed before promoting any guard to selected market caps.
 The command reports affected issues and issue-days, carried versus null days,
 and the highest cap impact so the policy can be decided from actual data.
+
+## Batch review of every selected case
+
+After the dry-run audit, run:
+
+```bash
+python -m open_equity_data.review_eodhd_share_jump_cases
+```
+
+This reads the existing candidate tables and prints **all** affected
+securities, then writes timestamped issue-level and filing-level CSVs in
+`~/Downloads`. The issue file includes the earlier and newly reported share
+counts, number of flagged filings, affected date span, actual and hypothetical
+caps, 365-day uncovered days, dated MSCI/manual overlap counts, and whether a
+later eligible EODHD filing returns near the earlier count on the same split
+basis. Source overlaps use the dated daily candidate; the report does not use
+a later MSCI or EODHD value to alter an earlier share count.
+
+The printed categories distinguish independent evidence favoring the prior
+or new count, a later EODHD return near the prior count, an implausibly tiny
+prior cap requiring review, and unresolved cases. A category is evidence for
+review, **not** approval to change the selected share series. In particular,
+returning to a small prior count can still be an error in the prior count.

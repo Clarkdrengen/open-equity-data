@@ -40,11 +40,12 @@ def test_month_end_msci_priority_and_365_day_carry_without_future_selection():
     """)
     con.execute("""
         CREATE TABLE silver.security_shares_outstanding_effective AS
-        SELECT 'AAA' AS ticker, DATE '2020-01-15' AS filing_date,
+        SELECT 'AAA' AS ticker, 'AAA.US' AS provider_symbol,
+               DATE '2020-01-15' AS filing_date,
                DATE '2019-12-31' AS period_date,
                900.0 AS shares_outstanding,
                'eodhd_balance_sheet' AS shares_source
-        UNION ALL SELECT 'BBB', DATE '2020-01-15', DATE '2019-12-31',
+        UNION ALL SELECT 'BBB', 'BBB.US', DATE '2020-01-15', DATE '2019-12-31',
                          700.0, 'eodhd_balance_sheet'
     """)
     con.execute("""
@@ -135,6 +136,63 @@ def test_month_end_msci_priority_and_365_day_carry_without_future_selection():
         FROM silver.security_daily_market_cap_source_priority_candidate
         WHERE date = DATE '2021-02-26'
     """).fetchone() == ('msci', 1200.0)
+
+    # A manual source can invalidate an exact EODHD observation, then fill
+    # the gap only after publication. MSCI and other EODHD data keep priority.
+    con.execute("""
+        INSERT INTO bronze.eodhd_share_manual_adjustment VALUES
+        (2, 'BBB', 'BBB.US', DATE '2019-12-31', DATE '2020-01-15',
+         700.0, 720.0, DATE '2020-01-31', DATE '2020-02-01',
+         'filing', 'https://example.org/filing', 'filing-1',
+         '720 shares as of January 31', NULL, TIMESTAMP '2020-02-02')
+    """)
+    con.execute("""
+        INSERT INTO bronze.eodhd_share_manual_adjustment VALUES
+        (1, 'AAA', 'AAA.US', DATE '2019-12-31', DATE '2020-01-15',
+         900.0, 920.0, DATE '2020-01-31', DATE '2020-02-01',
+         'filing', 'https://example.org/other', 'filing-2',
+         '920 shares as of January 31', NULL, TIMESTAMP '2020-02-02')
+    """)
+    con.execute("""
+        INSERT INTO bronze.eodhd_share_manual_adjustment VALUES
+        (3, 'CCC', NULL, NULL, NULL, NULL, 50.0,
+         DATE '2020-02-28', DATE '2020-03-01', 'filing',
+         'https://example.org/third', 'filing-3',
+         '50 shares as of February 28', NULL, TIMESTAMP '2020-03-01')
+    """)
+    con.execute("""
+        INSERT INTO silver.security_daily_ohlcv_reconciled VALUES
+        (3, DATE '2020-03-02', 'CCC', 2.0, 'dolt', FALSE)
+    """)
+    build(con)
+    assert con.execute("""
+        SELECT selected_source, selected_shares_candidate,
+               eodhd_filed_shares, manual_document_id,
+               market_cap_candidate, eodhd_observation_invalidated
+        FROM silver.security_daily_market_cap_source_priority_candidate
+        WHERE security_id = 2 AND date = DATE '2020-02-03'
+    """).fetchone() == ('manual_sourced', 720.0, 700.0, 'filing-1',
+                        3600.0, True)
+    assert con.execute("""
+        SELECT selected_source, selected_shares_candidate
+        FROM silver.security_daily_market_cap_source_priority_candidate
+        WHERE security_id = 1 AND date = DATE '2020-02-03'
+    """).fetchone() == ('msci', 1000.0)
+    assert con.execute("""
+        SELECT selected_source, selected_shares_candidate
+        FROM silver.security_daily_market_cap_source_priority_candidate
+        WHERE security_id = 1 AND date = DATE '2020-01-30'
+    """).fetchone() == ('no_eligible_share_source', None)
+    assert con.execute("""
+        SELECT shares_outstanding FROM silver.security_shares_outstanding_effective
+        WHERE ticker = 'BBB'
+    """).fetchone()[0] == 700.0
+    assert con.execute("""
+        SELECT selected_source, selected_shares_candidate,
+               market_cap_candidate
+        FROM silver.security_daily_market_cap_source_priority_candidate
+        WHERE security_id = 3 AND date = DATE '2020-03-02'
+    """).fetchone() == ('manual_sourced', 50.0, 100.0)
     assert con.execute("""
         SELECT selected_source, market_cap_candidate
         FROM silver.security_daily_market_cap_source_priority_candidate

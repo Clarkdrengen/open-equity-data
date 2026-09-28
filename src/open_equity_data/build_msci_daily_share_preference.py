@@ -6,7 +6,15 @@ This is a source-priority candidate, not a canonical market-cap replacement.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from open_equity_data.db import connect
+
+
+MANUAL_SCHEMA = (
+    Path(__file__).resolve().parents[2]
+    / "sql/bronze/create_eodhd_share_manual_adjustment.sql"
+)
 
 
 SNAPSHOT_SQL = """
@@ -44,6 +52,7 @@ CREATE OR REPLACE TABLE silver.security_daily_market_cap_source_priority_candida
 WITH base AS (
     SELECT px.security_id, px.date, px.ticker,
            o.shares_outstanding AS eodhd_filed_shares,
+           o.provider_symbol AS eodhd_provider_symbol,
            o.shares_source AS eodhd_share_source,
            o.filing_date AS shares_filing_date,
            o.period_date AS shares_period_date,
@@ -51,11 +60,28 @@ WITH base AS (
            COALESCE(i.ticker_identity_ambiguous, FALSE)
                AS ticker_identity_ambiguous,
            f.cumulative_split_multiplier AS current_split_multiplier,
+           m.sourced_shares AS manual_shares,
+           m.shares_as_of_date AS manual_as_of_date,
+           m.source_publication_date AS manual_publication_date,
+           m.source_name AS manual_source_name,
+           m.source_url AS manual_source_url,
+           m.source_document_id AS manual_document_id,
+           (bad.security_id IS NOT NULL) AS eodhd_observation_invalidated,
            px.close, px.source AS price_source,
            px.research_eligible AS price_research_eligible
     FROM silver.security_daily_ohlcv_reconciled px
     ASOF LEFT JOIN silver.security_shares_outstanding_effective o
       ON px.ticker = o.ticker AND px.date >= o.filing_date
+    ASOF LEFT JOIN bronze.eodhd_share_manual_adjustment m
+      ON px.security_id = m.security_id AND px.ticker = m.ticker
+     AND px.date >= m.source_publication_date
+    LEFT JOIN bronze.eodhd_share_manual_adjustment bad
+      ON bad.security_id = px.security_id
+     AND bad.ticker = px.ticker
+     AND bad.target_provider_symbol = o.provider_symbol
+     AND bad.target_period_date = o.period_date
+     AND bad.target_filing_date = o.filing_date
+     AND bad.target_shares = o.shares_outstanding
     LEFT JOIN silver.shares_ticker_identity_diagnostic i
       ON i.ticker = px.ticker
     LEFT JOIN silver.security_daily_split_factor_reconciled f
@@ -81,33 +107,50 @@ WITH base AS (
            eodhd_filed_shares > 0
            AND shares_age_days BETWEEN 0 AND 365
            AND NOT COALESCE(ticker_identity_ambiguous, FALSE)
-               AS eodhd_within_365_days
+               AS eodhd_within_365_days,
+           manual_shares > 0
+           AND date_diff('day', manual_publication_date, date) BETWEEN 0 AND 365
+               AS manual_within_365_days
     FROM attached
 )
 SELECT security_id, date, ticker, family, msci_snapshot_date,
        msci_anchor_price_date, msci_security_code, isin,
-       msci_snapshot_shares, eodhd_filed_shares,
+       msci_snapshot_shares, eodhd_filed_shares, eodhd_provider_symbol,
        eodhd_share_source,
+       manual_shares, manual_as_of_date,
+       manual_publication_date, manual_source_name,
+       manual_source_url, manual_document_id,
+       eodhd_observation_invalidated,
        shares_filing_date, shares_period_date, shares_age_days,
        close, price_source, price_research_eligible,
        msci_within_365_days, eodhd_within_365_days,
+       manual_within_365_days,
        CASE WHEN msci_within_365_days
             THEN msci_snapshot_shares * current_split_multiplier
                  / anchor_split_multiplier END AS msci_current_shares_candidate,
        CASE WHEN msci_within_365_days THEN 'msci'
+            WHEN manual_within_365_days THEN 'manual_sourced'
             WHEN eodhd_within_365_days
+                 AND NOT eodhd_observation_invalidated
                  THEN 'eodhd'
             ELSE 'no_eligible_share_source' END AS selected_source,
        CASE WHEN msci_within_365_days
             THEN msci_snapshot_shares * current_split_multiplier
                  / anchor_split_multiplier
+            WHEN manual_within_365_days THEN manual_shares
             WHEN eodhd_within_365_days
-            THEN eodhd_filed_shares END AS selected_shares_candidate,
+                 AND NOT eodhd_observation_invalidated
+            THEN eodhd_filed_shares
+            END AS selected_shares_candidate,
        CASE WHEN close > 0 AND msci_within_365_days
             THEN close * msci_snapshot_shares * current_split_multiplier
                  / anchor_split_multiplier
+            WHEN close > 0 AND manual_within_365_days
+            THEN close * manual_shares
             WHEN close > 0 AND eodhd_within_365_days
-            THEN close * eodhd_filed_shares END AS market_cap_candidate
+                 AND NOT eodhd_observation_invalidated
+            THEN close * eodhd_filed_shares
+            END AS market_cap_candidate
 FROM classified
 """
 
@@ -115,6 +158,23 @@ FROM classified
 def build(con):
     con.execute("BEGIN TRANSACTION")
     try:
+        con.execute(MANUAL_SCHEMA.read_text())
+        duplicate = con.execute("""
+            SELECT security_id, ticker, target_provider_symbol,
+                   target_period_date, target_filing_date, target_shares
+            FROM bronze.eodhd_share_manual_adjustment
+            WHERE target_provider_symbol IS NOT NULL
+            GROUP BY ALL HAVING COUNT(*) > 1 LIMIT 1
+        """).fetchone()
+        if duplicate:
+            raise ValueError(f"Duplicate manual share invalidation target: {duplicate}")
+        duplicate_date = con.execute("""
+            SELECT security_id, ticker, source_publication_date
+            FROM bronze.eodhd_share_manual_adjustment
+            GROUP BY ALL HAVING COUNT(*) > 1 LIMIT 1
+        """).fetchone()
+        if duplicate_date:
+            raise ValueError(f"Ambiguous manual share date: {duplicate_date}")
         con.execute(SNAPSHOT_SQL)
         con.execute(DAILY_SQL)
         for lag in (1, 5, 22):

@@ -58,9 +58,12 @@ WITH priced AS (
     FROM levels
 ), scored AS (
     SELECT *,
-           CASE WHEN observations_for_issue >= 4 AND mad_log_shares > 0
+           -- A nearly constant history gives an arbitrarily large MAD score.
+           -- Five percent is a diagnostic scale floor, not a share correction.
+           CASE WHEN observations_for_issue >= 4 AND share_basis_proxy > 0
                 THEN 0.67448975 * ABS(log_shares - median_log_shares)
-                     / mad_log_shares END AS robust_z,
+                     / GREATEST(COALESCE(mad_log_shares, 0), LN(1.05))
+                END AS robust_z,
            CASE WHEN prior_share_basis_proxy > 0
                 THEN ABS(LN(share_basis_proxy / prior_share_basis_proxy))
                 END AS adjacent_log_ratio,

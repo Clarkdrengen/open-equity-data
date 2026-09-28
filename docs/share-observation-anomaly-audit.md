@@ -18,6 +18,9 @@ absolute deviation. Comparable source shares are divided by the reconciled
 split multiplier to put observations on one diagnostic basis. A high z-score
 requires at least a 1.5x deviation from the issue median: a tiny median
 absolute deviation must not classify ordinary gradual buybacks as an error.
+The z-score denominator is floored at `ln(1.05)` to keep nearly constant
+histories from generating millions-scale scores. This diagnostic scale floor
+does not alter shares or caps.
 The adjacent
 ratio detects large jumps when dispersion is zero. MSCI and sourced manual
 comparisons use shares on the same priced date and only when the EODHD basis
@@ -29,8 +32,8 @@ flag, since a consistently wrong history can have no within-stock anomaly.
 The CLI prints a reason summary and three queues, with **one source record
 per security** in each: selected statistical or cross-source signals, large
 selected caps with no independent comparison, and unselected source signals.
-Selected signals rank by robust z-score by default (`--rank impact` instead
-ranks them by selected cap); large caps rank by selected cap, and unselected
+Selected signals rank by selected cap by default (`--rank z` instead ranks by
+robust z-score); large caps rank by selected cap, and unselected
 signals rank by raw implied cap. The full
 Silver table retains every source record for deeper analysis. Scores identify
 records to inspect; they do not

@@ -48,7 +48,7 @@ def test_source_record_audit_groups_days_and_catches_persistent_bad_scale():
     """).fetchall()
     assert [(r[0], r[1], r[2]) for r in rows] == [
         (1, 1, 'adjacent_10x'), (2, 2, 'cross_source_10x')]
-    assert rows[0][3] > 8
+    assert 8 < rows[0][3] < 200
     assert sum(row[1] for row in summary(con)) == 5
     assert [row[0] for row in queue(con, 30, section='selected_signal')] == [1]
     assert [row[0] for row in queue(con, 30, section='unselected')] == [2]

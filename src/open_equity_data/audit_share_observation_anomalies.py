@@ -34,7 +34,7 @@ def summary(con):
     """).fetchall()
 
 
-def queue(con, limit: int, *, section: str, rank: str = 'z'):
+def queue(con, limit: int, *, section: str, rank: str = 'impact'):
     if section not in ('selected_signal', 'selected_large_cap', 'unselected'):
         raise ValueError(section)
     if rank not in ('z', 'impact'):
@@ -78,7 +78,7 @@ def queue(con, limit: int, *, section: str, rank: str = 'z'):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--limit', type=int, default=30)
-    parser.add_argument('--rank', choices=('z', 'impact'), default='z')
+    parser.add_argument('--rank', choices=('z', 'impact'), default='impact')
     args = parser.parse_args()
     if args.limit < 1:
         parser.error('--limit must be positive')

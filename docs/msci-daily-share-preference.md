@@ -105,18 +105,24 @@ source-backed work. No deciles or canonical market-cap replacement are built.
 
 Two additional no-split outliers have source-backed replacements. Run
 `python -m open_equity_data.populate_sec_share_outlier_evidence` to preview
-the exact FRG and HYLN EODHD target observations and the priced dates they
-affect; `--apply` inserts one Bronze manual-source row per affected priced
-date and rebuilds this Silver candidate in one transaction. The SEC FRG
+the FRG and HYLN priced dates covered by the SEC evidence; `--apply`
+replaces the earlier narrow source-document rows with one Bronze row for
+every priced date in each source's 365-day carry and rebuilds Silver in one
+transaction. The SEC FRG
 2021-11-02 10-Q reports 40,295,469 shares as of 2021-10-29, first usable
 at the next close on 2021-11-03. The SEC HYLN 2021-02-26 10-K reports
 170,255,200 as of 2021-02-23, usable on 2021-02-26. HYLN's EODHD
 104,324,059,000 divided by 1,000 equals a *weighted-average earnings*
-figure, which is not its dated outstanding count. The script requires an
-exact vendor count, security ID, ticker and identity match, excludes later
-vendor records, and refuses missing or duplicate targets. Its final 20
-largest EODHD caps are an audit queue; these two replacements do not certify
-the rest of the universe.
+figure, which is not its dated outstanding count. The script requires the
+known original erroneous vendor records, security ID, ticker and identity
+match. In the carry window it marks each EODHD observation at least 100
+times the SEC count as invalid, including subsequent erroneous quarterly
+records; reasonable EODHD observations remain in Bronze but the more recent
+SEC proxy retains priority until it expires. The 100-fold comparison is
+restricted to these two sourced cases and is not a universal normalization
+rule. The script refuses missing or duplicate sources. Its final 20 largest
+EODHD caps form an audit queue; these replacements do not certify the rest
+of the universe.
 
 The original open-source Dolt/DoltHub import supplied Bronze `ohlcv`, `split`,
 `dividend`, and `symbol`: the starting price/action/reference source, not a

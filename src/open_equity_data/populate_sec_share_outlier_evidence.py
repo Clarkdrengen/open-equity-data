@@ -1,4 +1,4 @@
-"""Stage two SEC cover-page share counts against exact suspect EODHD records.
+"""Carry two SEC cover-page share proxies and flag gross EODHD mismatches.
 
 Preview is the default. --apply appends dated Bronze evidence and rebuilds the
 Silver candidate transactionally. It does not rescale the vendor's raw facts.
@@ -33,7 +33,7 @@ WITH evidence AS (
          'https://www.sec.gov/Archives/edgar/data/1759631/000121390021011788/f10k2020_hyliionholdings.htm',
          '170,255,200 shares outstanding as of February 23, 2021')
     ) AS e(security_id, ticker, publication_date, first_price_date,
-           shares_as_of_date, sourced_shares, target_shares,
+           shares_as_of_date, sourced_shares, initially_bad_shares,
            source_document_id, source_url, source_excerpt)
 ), priced AS (
     SELECT e.*, p.date AS price_date
@@ -44,7 +44,7 @@ WITH evidence AS (
      AND date_diff('day', e.publication_date, p.date) <= 365
 ), attached AS (
     SELECT p.*, o.provider_symbol, o.period_date, o.filing_date,
-           o.shares_outstanding,
+           o.shares_outstanding AS observed_shares,
            r.bronze_security_name
     FROM priced p
     ASOF LEFT JOIN silver.security_shares_outstanding_effective o
@@ -53,17 +53,23 @@ WITH evidence AS (
       ON r.security_id = p.security_id AND r.ticker = p.ticker
 )
 SELECT security_id, ticker, price_date,
-       provider_symbol AS target_provider_symbol,
-       period_date AS target_period_date,
-       filing_date AS target_filing_date,
-       shares_outstanding AS target_shares,
+       CASE WHEN provider_symbol = ticker || '.US'
+                      AND observed_shares >= sourced_shares * 100
+            THEN provider_symbol END AS target_provider_symbol,
+       CASE WHEN provider_symbol = ticker || '.US'
+                      AND observed_shares >= sourced_shares * 100
+            THEN period_date END AS target_period_date,
+       CASE WHEN provider_symbol = ticker || '.US'
+                      AND observed_shares >= sourced_shares * 100
+            THEN filing_date END AS target_filing_date,
+       CASE WHEN provider_symbol = ticker || '.US'
+                      AND observed_shares >= sourced_shares * 100
+            THEN observed_shares END AS target_shares,
        sourced_shares, shares_as_of_date, publication_date AS source_publication_date,
        'SEC Form 10-Q/10-K cover page' AS source_name, source_url,
        source_document_id, source_excerpt
 FROM attached
-WHERE shares_outstanding = target_shares
-  AND provider_symbol = ticker || '.US'
-  AND ((ticker = 'FRG' AND UPPER(bronze_security_name) LIKE '%FRANCHISE GROUP%')
+WHERE ((ticker = 'FRG' AND UPPER(bronze_security_name) LIKE '%FRANCHISE GROUP%')
     OR (ticker = 'HYLN' AND UPPER(bronze_security_name) LIKE '%HYLIION%'))
 """
 
@@ -71,15 +77,26 @@ WHERE shares_outstanding = target_shares
 def stage(con):
     con.execute(STAGE_SQL)
     summary = con.execute("""
-        SELECT ticker, source_document_id, sourced_shares, target_shares,
+        SELECT ticker, source_document_id, sourced_shares,
                COUNT(*) AS price_days, MIN(price_date), MAX(price_date),
                COUNT(DISTINCT (target_provider_symbol, target_period_date,
-                               target_filing_date, target_shares)) AS targets
+                               target_filing_date, target_shares))
+                   FILTER (WHERE target_shares IS NOT NULL) AS targets,
+               COUNT(*) FILTER (WHERE target_shares IS NOT NULL)
+                   AS flagged_issue_days
         FROM sec_share_outlier_stage
-        GROUP BY 1, 2, 3, 4 ORDER BY 1
+        GROUP BY 1, 2, 3 ORDER BY 1
     """).fetchall()
-    if len(summary) != 2 or any(row[4] == 0 for row in summary):
-        raise ValueError(f"Expected both exact EODHD targets; got {summary}")
+    if len(summary) != 2 or any(row[3] == 0 or row[6] == 0 for row in summary):
+        raise ValueError(f"Expected both sourced cohorts and bad EODHD targets; got {summary}")
+    initial = con.execute("""
+        SELECT ticker FROM sec_share_outlier_stage
+        WHERE (ticker = 'FRG' AND target_shares = 40973736000.0)
+           OR (ticker = 'HYLN' AND target_shares = 104324059000.0)
+        GROUP BY ticker ORDER BY ticker
+    """).fetchall()
+    if initial != [('FRG',), ('HYLN',)]:
+        raise ValueError(f"Original source observations missing: {initial}")
     duplicate = con.execute("""
         SELECT security_id, price_date, COUNT(*) FROM sec_share_outlier_stage
         GROUP BY 1, 2 HAVING COUNT(*) > 1 LIMIT 1
@@ -141,8 +158,8 @@ def main():
     args = parser.parse_args()
     with connect() as con:
         con.execute(MANUAL_SCHEMA.read_text())
+        print('ticker | SEC accession | sourced shares | dates | first | last | bad EODHD records | flagged dates')
         for row in stage(con):
-            print('ticker | SEC accession | filed shares | raw EODHD shares | dates | first | last | targets')
             print(*row, sep=' | ')
         if args.apply:
             print('Rebuilt selected sources:', apply(con))

@@ -16,6 +16,17 @@ exact number persisted through all subsequent dates. The proposed date range
 must be reviewed before any dated Bronze adjustment is applied. Source:
 https://www.prnewswire.com/news-releases/ellomay-capital-announces-a-one-for-ten-reverse-split-123034353.html
 
+`python -m open_equity_data.stage_material_share_corrections` previews three
+large, source-backed candidate cohorts: FRG from its August 5, 2020 10-Q,
+BLW from the BlackRock proxy filed June 16, 2011, and ELLO from the issuer's
+June 2 announcement effective June 9. With `--apply`, only dates with an
+EODHD share fact at least 100 times the sourced count are written to
+`bronze.eodhd_share_manual_adjustment`. The Silver source-priority candidate
+is rebuilt in the same transaction, checked against every staged row, and
+the next 20 largest EODHD peaks are printed. The script refuses conflicting
+Bronze rows or changed split bases; it does not change instrument eligibility.
+The six ELLO dates before June 9 are outside this post-split cohort.
+
 ## Manual share-adjustment invariant
 
 Every manually chosen adjustment to shares outstanding, past or future,

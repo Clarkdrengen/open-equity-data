@@ -1,5 +1,18 @@
 # Dated MSCI/EODHD shares and market cap (Silver candidate)
 
+## Manual share-adjustment invariant
+
+Every manually chosen adjustment to shares outstanding, past or future,
+must be written to `bronze.eodhd_share_manual_adjustment` with its priced
+date, source count, as-of and publication dates, source URL/document ID,
+excerpt, and (when replacing an EODHD observation) its exact vendor target.
+Silver reads this table to select and audit the resulting count and market
+cap. Do not hard-code a security-specific share replacement or multiplier
+in Silver SQL/Python, patch a derived cap directly, or overwrite a vendor
+Bronze observation. Changes to automatic source-wide transformation logic
+are distinct from manual adjustments and require their own evidence and
+review. This applies to both existing GLSPT/FRG/HYLN rows and later cases.
+
 The share-source priority is **MSCI, then sourced manual adjustment, then
 EODHD**, with each dated count carried forward up to **365 calendar days**.
 The MSCI files represent the close at the end of their calculation

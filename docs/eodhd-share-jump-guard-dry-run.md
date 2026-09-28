@@ -1,58 +1,60 @@
-# Forward-only EODHD share jump dry run
+# Forward-only EODHD share jump guard
 
-Run after `python -m open_equity_data.build_msci_daily_share_preference`:
+`python -m open_equity_data.build_msci_daily_share_preference` now builds an
+unguarded source selection, records the guard diagnostics, and applies the
+approved guard to the selected Silver market-cap candidate. To inspect the
+saved pre-guard impact, run:
 
 ```bash
 python -m open_equity_data.audit_eodhd_share_jump_guard --limit 20
 ```
 
-The command builds two **diagnostic** Silver tables:
+The builder creates two **diagnostic** Silver tables:
 
 - `silver.eodhd_share_jump_guard_observation_candidate`: one priced EODHD
   observation per security, filing date, period, provider and raw count.
-- `silver.eodhd_share_jump_guard_impact_candidate`: only the selected EODHD
-  issue-days that would change, with their original and hypothetical shares
-  and caps. A null hypothetical cap means the prior accepted filing is too old
+- `silver.eodhd_share_jump_guard_impact_candidate`: the originally selected
+  EODHD issue-days changed by the guard, with original and guarded caps.
+  A null guarded cap means the prior accepted filing is too old
   or an intervening split makes the carry unsafe.
 
 For each security, walk EODHD filings in date order. Ignore observations that
 the current Silver source-priority table already deems ineligible or that a
 Bronze sourced adjustment has invalidated. If the first priced day of a new
 filing has the same reconciled split multiplier as the last accepted filing,
-flag an upward share jump of at least 100×. Do not let a flagged filing reset
+quarantine an upward share jump of at least 100×. Do not let a flagged filing reset
 the accepted baseline; later bad filings are compared with the last accepted
 one. Other eligible filings become the next baseline. The threshold is a
-**candidate screening rule**, not a correction or a claim that 100× share
-issuance cannot happen.
+**selection rule**, not a correction to raw EODHD data or a claim that 100×
+share issuance cannot happen.
 
-For a flagged source record that currently supplies the market cap, the dry
-run carries the last accepted eligible count only up to **365 calendar days
-after its own filing** and only if the split multiplier is unchanged. After
-that, the hypothetical EODHD share count is null. MSCI and sourced manual
-priority remain as they are. The dry run does not edit Bronze, selected shares,
-or the selected market-cap table. It never uses a later filing to fill an
-earlier date.
+For a flagged source record that would otherwise supply market cap, Silver
+carries the last accepted eligible count only up to **365 calendar days after
+its own filing** and only if the split multiplier is unchanged. After that,
+selected shares and cap are null. The selected source is `eodhd_guard_carry`
+or `no_eligible_share_source`. MSCI and sourced manual shares retain priority;
+the raw EODHD record and pre-guard impact remain visible. A later filing never
+fills an earlier date. The guard does not edit Bronze.
 
 This guard cannot identify a bad first observation, a consistently bad early
 history, or problems across split boundaries. It relies on the existing
 source-priority table's eligibility and basis classification, whose calibration
-may have its own retrospective evidence. A separate date-aware review of that
-calibration is needed before promoting any guard to selected market caps.
-The command reports affected issues and issue-days, carried versus null days,
-and the highest cap impact so the policy can be decided from actual data.
+may have its own retrospective evidence. Rebuilding the source-priority table
+regenerates the diagnostics from the unguarded selection. The audit command
+reads those saved diagnostics without resetting the original impact.
 
 ## Batch review of every selected case
 
-After the dry-run audit, run:
+After the source-priority rebuild, run:
 
 ```bash
 python -m open_equity_data.review_eodhd_share_jump_cases
 ```
 
-This reads the existing candidate tables and prints **all** affected
+This reads the existing candidate tables and prints material affected
 securities, then writes timestamped issue-level and filing-level CSVs in
 `~/Downloads`. The issue file includes the earlier and newly reported share
-counts, number of flagged filings, affected date span, actual and hypothetical
+counts, number of flagged filings, affected date span, original and guarded
 caps, 365-day uncovered days, dated MSCI/manual overlap counts, and whether a
 later eligible EODHD filing returns near the earlier count on the same split
 basis. Source overlaps use the dated daily candidate; the report does not use
@@ -62,9 +64,9 @@ The issue file also measures each flagged issue's peak share of the **recorded
 daily research-eligible aggregate market cap**, in basis points, and its
 hypothetical carried-cap difference when available. Console output defaults
 to issues reaching at least one basis point (`--min-peak-bps` changes this
-display threshold); both CSVs retain the full batch. The denominator includes
-the suspected inflated cap, so this is a prioritization measure, not a final
-estimate of the corrected market return or index weight.
+display threshold); both CSVs retain the full batch. The denominator
+reconstructs the pre-guard total, including the suspected inflated cap, so
+this is a prioritization measure, not a final index weight.
 
 The printed categories distinguish independent evidence favoring the prior
 or new count, a later EODHD return near the prior count, an implausibly tiny

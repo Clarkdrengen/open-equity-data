@@ -1,4 +1,4 @@
-"""Review every 100x share jump in one local batch; do not change selection.
+"""Review every 100x share jump in one local batch.
 
 Uses the existing dry-run guard tables and writes one issue-level and one
 filing-level CSV to Downloads. Only compact issue-level results are printed.
@@ -98,17 +98,30 @@ WITH flagged AS (
       ON g.security_id = f.security_id
      AND g.shares_filing_date > f.first_flagged_filing
     GROUP BY f.security_id, f.first_prior_shares, f.first_prior_factor
-), daily_totals AS (
+), selected_daily_totals AS (
     SELECT date,
            SUM(market_cap_candidate) FILTER (
                WHERE price_research_eligible AND market_cap_candidate > 0)
-               AS research_total_cap
+               AS selected_research_total_cap
     FROM silver.security_daily_market_cap_source_priority_candidate
     WHERE date IN (
         SELECT DISTINCT date
         FROM silver.eodhd_share_jump_guard_impact_candidate
     )
     GROUP BY date
+), original_daily_totals AS (
+    SELECT d.date,
+           d.selected_research_total_cap + COALESCE(SUM(
+               CASE WHEN c.price_research_eligible
+                         AND c.selected_source <> 'eodhd'
+                    THEN i.original_cap - COALESCE(i.dry_run_cap, 0)
+                    ELSE 0 END), 0) AS research_total_cap
+    FROM selected_daily_totals d
+    LEFT JOIN silver.eodhd_share_jump_guard_impact_candidate i
+      ON i.date = d.date
+    LEFT JOIN silver.security_daily_market_cap_source_priority_candidate c
+      ON c.security_id = i.security_id AND c.date = i.date
+    GROUP BY d.date, d.selected_research_total_cap
 ), materiality AS (
     SELECT i.security_id,
            COUNT(*) FILTER (WHERE c.price_research_eligible)
@@ -127,7 +140,7 @@ WITH flagged AS (
     JOIN silver.security_daily_market_cap_source_priority_candidate c
       ON c.security_id = i.security_id AND c.ticker = i.ticker
      AND c.date = i.date
-    LEFT JOIN daily_totals d ON d.date = i.date
+    LEFT JOIN original_daily_totals d ON d.date = i.date
     GROUP BY i.security_id
 )
 SELECT f.*, i.selected_days, i.carried_days, i.uncovered_days,

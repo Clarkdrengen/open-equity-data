@@ -1,7 +1,8 @@
-"""Dry-run, forward-only 100x EODHD filing jump guard and daily impact audit.
+"""Forward-only 100x EODHD filing jump diagnostics and pre-guard impact.
 
-Does not alter Bronze, selected Silver shares, or market caps. Run after
-build_msci_daily_share_preference; compares observations in filing-date order.
+The source-priority builder generates these tables from its unguarded
+selection, then applies the approved guard in Silver. This command reports
+the original-versus-guarded impact retained from that build.
 """
 
 from __future__ import annotations
@@ -88,7 +89,7 @@ WITH affected AS (
            c.selected_shares_candidate AS original_shares,
            g.shares_filing_date, g.eodhd_filed_shares,
            g.ratio_to_last_accepted, g.prior_accepted_filing_date,
-           CASE WHEN date_diff('day', g.prior_accepted_filing_date, c.date)
+           CASE WHEN date_diff('day', CAST(g.prior_accepted_filing_date AS DATE), c.date)
                          BETWEEN 0 AND 365
                      AND c.current_split_multiplier > 0
                      AND g.prior_accepted_factor > 0
@@ -166,8 +167,11 @@ def main():
     args = parser.parse_args()
     if args.limit < 1:
         parser.error('--limit must be positive')
-    with connect() as con:
-        count = build(con)
+    with connect(read_only=True) as con:
+        count = con.execute("""
+            SELECT COUNT(*)
+            FROM silver.eodhd_share_jump_guard_observation_candidate
+        """).fetchone()[0]
         totals, impact, cases = summary(con, args.limit)
     print(f'Priced EODHD source observations: {count}')
     print('guard status | observations | issues | originally selected days')
@@ -180,8 +184,8 @@ def main():
           'peak original cap | peak dry-run cap | largest jump')
     for row in cases:
         print(*row, sep=' | ')
-    print('Dry run only; selected shares and market caps are unchanged. '
-          'A first bad filing and split boundaries cannot be detected by this guard.')
+    print('The source-priority build applies this guard in Silver; impact rows '
+          'retain pre-guard caps. First bad filings and split boundaries remain unchecked.')
 
 
 if __name__ == '__main__':

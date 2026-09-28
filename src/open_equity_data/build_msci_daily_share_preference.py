@@ -237,6 +237,44 @@ FROM normalized
 """
 
 
+def apply_share_jump_guard(con):
+    """Quarantine selected 100x EODHD observations after the raw selection."""
+    from open_equity_data.audit_eodhd_share_jump_guard import build as build_guard
+
+    build_guard(con)
+    con.execute("""
+        ALTER TABLE silver.security_daily_market_cap_source_priority_candidate
+        ADD COLUMN IF NOT EXISTS eodhd_guard_status VARCHAR
+    """)
+    con.execute("""
+        ALTER TABLE silver.security_daily_market_cap_source_priority_candidate
+        ADD COLUMN IF NOT EXISTS eodhd_guard_prior_filing_date DATE
+    """)
+    con.execute("""
+        UPDATE silver.security_daily_market_cap_source_priority_candidate c
+           SET selected_source = CASE WHEN i.dry_run_shares > 0
+                                      THEN 'eodhd_guard_carry'
+                                      ELSE 'no_eligible_share_source' END,
+               selected_shares_candidate = i.dry_run_shares,
+               market_cap_candidate = i.dry_run_cap,
+               eodhd_current_shares_candidate = NULL,
+               eodhd_guard_status = 'quarantined_100x_up',
+               eodhd_guard_prior_filing_date = i.prior_accepted_filing_date
+          FROM silver.eodhd_share_jump_guard_impact_candidate i
+         WHERE c.security_id = i.security_id AND c.date = i.date
+           AND c.ticker = i.ticker AND c.selected_source = 'eodhd'
+    """)
+    unmatched = con.execute("""
+        SELECT COUNT(*) FROM silver.eodhd_share_jump_guard_impact_candidate i
+        LEFT JOIN silver.security_daily_market_cap_source_priority_candidate c
+          ON c.security_id = i.security_id AND c.date = i.date
+         AND c.ticker = i.ticker AND c.eodhd_guard_status = 'quarantined_100x_up'
+        WHERE c.security_id IS NULL
+    """).fetchone()[0]
+    if unmatched:
+        raise ValueError(f'Guard did not apply to {unmatched} selected issue-days')
+
+
 def build(con, *, manage_transaction=True):
     if manage_transaction:
         con.execute("BEGIN TRANSACTION")
@@ -262,6 +300,8 @@ def build(con, *, manage_transaction=True):
         con.execute(SNAPSHOT_SQL)
         con.execute(BASIS_SQL.read_text())
         con.execute(DAILY_SQL)
+        # Audit before mutating selection, retaining original cap impact.
+        apply_share_jump_guard(con)
         for lag in (1, 5, 22):
             con.execute(f"DROP TABLE IF EXISTS silver.msci_daily_share_preference_lag{lag}_candidate")
         rows = con.execute("""

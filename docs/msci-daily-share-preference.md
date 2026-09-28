@@ -103,6 +103,21 @@ otherwise valid split calibration; it is not silently inferred from the
 share ratio. Verified publication dates and dated ADS ratios remain separate
 source-backed work. No deciles or canonical market-cap replacement are built.
 
+Two additional no-split outliers have source-backed replacements. Run
+`python -m open_equity_data.populate_sec_share_outlier_evidence` to preview
+the exact FRG and HYLN EODHD target observations and the priced dates they
+affect; `--apply` inserts one Bronze manual-source row per affected priced
+date and rebuilds this Silver candidate in one transaction. The SEC FRG
+2021-11-02 10-Q reports 40,295,469 shares as of 2021-10-29, first usable
+at the next close on 2021-11-03. The SEC HYLN 2021-02-26 10-K reports
+170,255,200 as of 2021-02-23, usable on 2021-02-26. HYLN's EODHD
+104,324,059,000 divided by 1,000 equals a *weighted-average earnings*
+figure, which is not its dated outstanding count. The script requires an
+exact vendor count, security ID, ticker and identity match, excludes later
+vendor records, and refuses missing or duplicate targets. Its final 20
+largest EODHD caps are an audit queue; these two replacements do not certify
+the rest of the universe.
+
 The original open-source Dolt/DoltHub import supplied Bronze `ohlcv`, `split`,
 `dividend`, and `symbol`: the starting price/action/reference source, not a
 verified outstanding-share source. EODHD also supplies some corrected or

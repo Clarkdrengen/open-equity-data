@@ -98,6 +98,37 @@ WITH flagged AS (
       ON g.security_id = f.security_id
      AND g.shares_filing_date > f.first_flagged_filing
     GROUP BY f.security_id, f.first_prior_shares, f.first_prior_factor
+), daily_totals AS (
+    SELECT date,
+           SUM(market_cap_candidate) FILTER (
+               WHERE price_research_eligible AND market_cap_candidate > 0)
+               AS research_total_cap
+    FROM silver.security_daily_market_cap_source_priority_candidate
+    WHERE date IN (
+        SELECT DISTINCT date
+        FROM silver.eodhd_share_jump_guard_impact_candidate
+    )
+    GROUP BY date
+), materiality AS (
+    SELECT i.security_id,
+           COUNT(*) FILTER (WHERE c.price_research_eligible)
+               AS research_eligible_days,
+           MAX(10000.0 * i.original_cap / d.research_total_cap)
+               FILTER (WHERE c.price_research_eligible
+                         AND d.research_total_cap > 0)
+               AS peak_reported_weight_bps,
+           MAX(10000.0 * GREATEST(i.original_cap - i.dry_run_cap, 0)
+               / d.research_total_cap)
+               FILTER (WHERE c.price_research_eligible
+                         AND d.research_total_cap > 0
+                         AND i.dry_run_cap IS NOT NULL)
+               AS peak_carry_delta_bps
+    FROM silver.eodhd_share_jump_guard_impact_candidate i
+    JOIN silver.security_daily_market_cap_source_priority_candidate c
+      ON c.security_id = i.security_id AND c.ticker = i.ticker
+     AND c.date = i.date
+    LEFT JOIN daily_totals d ON d.date = i.date
+    GROUP BY i.security_id
 )
 SELECT f.*, i.selected_days, i.carried_days, i.uncovered_days,
        i.first_selected_day, i.last_selected_day,
@@ -106,12 +137,15 @@ SELECT f.*, i.selected_days, i.carried_days, i.uncovered_days,
        d.msci_overlap_days, d.manual_overlap_days,
        d.msci_matches_new_days, d.msci_matches_prior_days,
        d.manual_matches_new_days, d.manual_matches_prior_days,
-       l.first_near_prior_after_flag
+       l.first_near_prior_after_flag,
+       m.research_eligible_days, m.peak_reported_weight_bps,
+       m.peak_carry_delta_bps
 FROM flagged f
 JOIN impact i USING (security_id)
 LEFT JOIN independent d USING (security_id)
 LEFT JOIN later l USING (security_id)
-ORDER BY i.peak_original_cap DESC, f.security_id
+LEFT JOIN materiality m USING (security_id)
+ORDER BY m.peak_reported_weight_bps DESC NULLS LAST, f.security_id
 """
 
 
@@ -173,7 +207,12 @@ def write_csv(path, rows):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--output-dir', type=Path, default=Path.home() / 'Downloads')
+    parser.add_argument('--min-peak-bps', type=float, default=1.0,
+                        help='Only print issues above this reported daily '
+                             'research-universe weight; CSV retains all')
     args = parser.parse_args()
+    if args.min_peak_bps < 0:
+        parser.error('--min-peak-bps must be nonnegative')
     with connect(read_only=True) as con:
         issues = fetch_dicts(con, ISSUES_SQL)
         filings = fetch_dicts(con, FILINGS_SQL)
@@ -193,11 +232,19 @@ def main():
         counts[category] = counts.get(category, 0) + 1
     print(f'Reviewed {len(issues)} securities, {len(filings)} selected flagged filings')
     print('Evidence categories:', counts)
-    print('ticker | category | original_peak_bn | median_carried_cap_m | '
+    material = [r for r in issues if r['peak_reported_weight_bps'] is not None
+                and r['peak_reported_weight_bps'] >= args.min_peak_bps]
+    print(f'{len(material)} securities reached at least {args.min_peak_bps:g} '
+          'basis points of the recorded research-universe cap on a flagged date')
+    print('ticker | peak_reported_weight_bps | peak_carry_delta_bps | '
+          'research_eligible_days | category | original_peak_bn | median_carried_cap_m | '
           'selected_days | uncovered_days | independent_overlap_days | '
           'first_near_prior_after_flag')
-    for row in issues:
-        print(row['ticker'], row['evidence_category'],
+    for row in material:
+        print(row['ticker'], round(row['peak_reported_weight_bps'], 2),
+              round(row['peak_carry_delta_bps'], 2)
+                  if row['peak_carry_delta_bps'] is not None else None,
+              row['research_eligible_days'], row['evidence_category'],
               round(row['peak_original_cap'] / 1e9, 3),
               round(row['median_carried_cap'] / 1e6, 3)
                   if row['median_carried_cap'] is not None else None,
@@ -207,7 +254,9 @@ def main():
     print(f'Issue-level CSV: {issue_path}')
     print(f'Filing-level CSV: {filing_path}')
     print('Evidence categories are diagnostic; no Bronze or selected Silver '
-          'shares/caps were changed.')
+          'shares/caps were changed. Reported weight uses the recorded daily '
+          'total, which includes the suspected inflated cap; a null carry '
+          'does not establish the true correction.')
 
 
 if __name__ == '__main__':

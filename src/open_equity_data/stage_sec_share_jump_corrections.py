@@ -1,12 +1,16 @@
-"""Preview dated SEC-backed Bronze adjustments for three high-impact cases.
+"""Preview SEC-backed Bronze adjustments for three high-impact cases.
 
-Read only. No Bronze rows are inserted and selected Silver remains unchanged.
-The proposed dates are restricted to selected EODHD days already flagged by
-audit_eodhd_share_jump_guard and to filing evidence available by that close.
+Default is read-only. --apply writes dated Bronze rows and rebuilds Silver
+after the proposed dates have been reviewed. Proposals are restricted to
+selected EODHD days flagged by audit_eodhd_share_jump_guard and to filing
+evidence available by that close.
 """
 
 from __future__ import annotations
 
+import argparse
+
+from open_equity_data.build_msci_daily_share_preference import MANUAL_SCHEMA, build
 from open_equity_data.db import connect
 
 
@@ -24,6 +28,11 @@ WITH sources AS (
          'https://www.sec.gov/Archives/edgar/data/1325670/000155837021015243/frst-20210930x10q.htm',
          '24,574,619 shares of common stock outstanding as of November 2, 2021',
          'PRIMIS'),
+        (6487, 'EVBN', DATE '2012-11-02', DATE '2012-11-02',
+         DATE '2012-10-30', 4157422.0, '0001193125-12-448401',
+         'https://www.sec.gov/Archives/edgar/data/842518/000119312512448401/d431636d10q.htm',
+         '4,157,422 shares of common stock outstanding as of October 30, 2012',
+         'EVANS BANCORP'),
         -- This 10-K was accepted at 16:30 ET on March 4. It cannot set
         -- that day\'s closing share count; first eligible date is March 5.
         (6487, 'EVBN', DATE '2013-03-04', DATE '2013-03-05',
@@ -96,14 +105,86 @@ def stage(con):
     """).fetchall()
 
 
+def apply(con, rows):
+    """Persist exact previewed rows in Bronze and rebuild Silver atomically."""
+    ids = {row[1] for row in rows}
+    expected = {'0001193125-12-448401', '0001562762-13-000070',
+                '0001558370-21-010914', '0001558370-21-015243',
+                '0001193125-19-290000'}
+    if ids != expected or any(row[3] < 1 or row[8] != 1 for row in rows):
+        raise ValueError(f'Incomplete or ambiguous SEC preview: {rows}')
+    con.execute('BEGIN TRANSACTION')
+    try:
+        con.execute(MANUAL_SCHEMA.read_text())
+        conflict = con.execute("""
+            SELECT a.security_id, a.price_date, a.source_document_id
+            FROM bronze.eodhd_share_manual_adjustment a
+            JOIN sec_share_jump_correction_preview s
+              ON a.security_id = s.security_id AND a.price_date = s.price_date
+            WHERE a.source_document_id <> s.source_document_id
+            LIMIT 1
+        """).fetchone()
+        if conflict:
+            raise ValueError(f'Existing Bronze adjustment conflicts: {conflict}')
+        con.execute("""
+            DELETE FROM bronze.eodhd_share_manual_adjustment a
+            USING sec_share_jump_correction_preview s
+            WHERE a.security_id = s.security_id
+              AND a.price_date = s.price_date
+              AND a.source_document_id = s.source_document_id
+        """)
+        con.execute("""
+            INSERT INTO bronze.eodhd_share_manual_adjustment (
+                security_id, ticker, price_date, target_provider_symbol,
+                target_period_date, target_filing_date, target_shares,
+                sourced_shares, shares_as_of_date, source_publication_date,
+                source_name, source_url, source_document_id, source_excerpt,
+                source_document_sha256, recorded_at)
+            SELECT security_id, ticker, price_date, target_provider_symbol,
+                   target_period_date, target_filing_date, target_shares,
+                   sourced_shares, shares_as_of_date, source_publication_date,
+                   source_name, source_url, source_document_id, source_excerpt,
+                   NULL, current_timestamp
+            FROM sec_share_jump_correction_preview
+        """)
+        build(con, manage_transaction=False)
+        mismatch = con.execute("""
+            SELECT s.security_id, s.price_date,
+                   c.selected_source, c.selected_shares_candidate,
+                   s.sourced_shares
+            FROM sec_share_jump_correction_preview s
+            LEFT JOIN silver.security_daily_market_cap_source_priority_candidate c
+              ON c.security_id = s.security_id AND c.date = s.price_date
+            WHERE c.selected_source <> 'manual_sourced'
+               OR ABS(c.selected_shares_candidate / s.sourced_shares - 1) > 0.001
+               OR c.security_id IS NULL
+            LIMIT 1
+        """).fetchone()
+        if mismatch:
+            raise ValueError(f'Silver rebuild did not select sourced shares: {mismatch}')
+        con.execute('COMMIT')
+    except Exception:
+        con.execute('ROLLBACK')
+        raise
+
+
 def main():
-    with connect(read_only=True) as con:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--apply', action='store_true',
+                        help='Write the previewed dates to Bronze and rebuild Silver')
+    args = parser.parse_args()
+    with connect(read_only=not args.apply) as con:
         rows = stage(con)
+        if args.apply:
+            apply(con, rows)
     print('ticker | SEC accession | sourced shares | affected days | '
           'first | last | peak original cap | peak proposed cap | target records')
     for row in rows:
         print(*row, sep=' | ')
-    print('Read-only Bronze adjustment preview; no source or selected cap changed.')
+    if args.apply:
+        print('Applied exact dated adjustments to Bronze and rebuilt Silver.')
+    else:
+        print('Read-only Bronze adjustment preview; no source or selected cap changed.')
 
 
 if __name__ == '__main__':

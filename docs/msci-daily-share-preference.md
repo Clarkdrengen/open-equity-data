@@ -1,5 +1,21 @@
 # Dated MSCI/EODHD shares and market cap (Silver candidate)
 
+## One-pass closure review (September 2026)
+
+Run `python -m open_equity_data.review_market_cap_closure` after rebuilding the
+candidate. It prints the source mix, the ELLO 2011 issuer-announcement proxy
+and affected date range, and the 30 largest research-eligible issue peaks with
+their actual same-day weights and share/split evidence. The report is read-only.
+Its within-issue median ratio is a diagnostic, not a correction rule; a
+consistently wrong first source record can have a ratio of one.
+
+The June 2, 2011 Ellomay announcement expected approximately 10,777,850
+ordinary shares after a one-for-ten reverse split effective June 9. The
+announcement is the source for the staged *proxy*, not evidence that this
+exact number persisted through all subsequent dates. The proposed date range
+must be reviewed before any dated Bronze adjustment is applied. Source:
+https://www.prnewswire.com/news-releases/ellomay-capital-announces-a-one-for-ten-reverse-split-123034353.html
+
 ## Manual share-adjustment invariant
 
 Every manually chosen adjustment to shares outstanding, past or future,

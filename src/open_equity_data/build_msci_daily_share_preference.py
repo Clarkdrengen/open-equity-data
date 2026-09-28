@@ -72,10 +72,15 @@ WITH base AS (
     FROM silver.security_daily_ohlcv_reconciled px
     ASOF LEFT JOIN silver.security_shares_outstanding_effective o
       ON px.ticker = o.ticker AND px.date >= o.filing_date
-    ASOF LEFT JOIN bronze.eodhd_share_manual_adjustment m
+    LEFT JOIN bronze.eodhd_share_manual_adjustment m
       ON px.security_id = m.security_id AND px.ticker = m.ticker
-     AND px.date >= m.source_publication_date
-    LEFT JOIN bronze.eodhd_share_manual_adjustment bad
+     AND px.date = m.price_date
+    LEFT JOIN (
+        SELECT DISTINCT security_id, ticker, target_provider_symbol,
+               target_period_date, target_filing_date, target_shares
+        FROM bronze.eodhd_share_manual_adjustment
+        WHERE target_provider_symbol IS NOT NULL
+    ) bad
       ON bad.security_id = px.security_id
      AND bad.ticker = px.ticker
      AND bad.target_provider_symbol = o.provider_symbol
@@ -128,6 +133,11 @@ SELECT security_id, date, ticker, family, msci_snapshot_date,
        CASE WHEN msci_within_365_days
             THEN msci_snapshot_shares * current_split_multiplier
                  / anchor_split_multiplier END AS msci_current_shares_candidate,
+       CASE WHEN manual_within_365_days
+            THEN manual_shares END AS manual_current_shares_candidate,
+       CASE WHEN eodhd_within_365_days
+                 AND NOT eodhd_observation_invalidated
+            THEN eodhd_filed_shares END AS eodhd_current_shares_candidate,
        CASE WHEN msci_within_365_days THEN 'msci'
             WHEN manual_within_365_days THEN 'manual_sourced'
             WHEN eodhd_within_365_days
@@ -155,26 +165,28 @@ FROM classified
 """
 
 
-def build(con):
-    con.execute("BEGIN TRANSACTION")
+def build(con, *, manage_transaction=True):
+    if manage_transaction:
+        con.execute("BEGIN TRANSACTION")
     try:
         con.execute(MANUAL_SCHEMA.read_text())
-        duplicate = con.execute("""
-            SELECT security_id, ticker, target_provider_symbol,
-                   target_period_date, target_filing_date, target_shares
+        invalid = con.execute("""
+            SELECT security_id, ticker, price_date
             FROM bronze.eodhd_share_manual_adjustment
-            WHERE target_provider_symbol IS NOT NULL
-            GROUP BY ALL HAVING COUNT(*) > 1 LIMIT 1
+            WHERE price_date IS NULL
+               OR price_date < source_publication_date
+               OR date_diff('day', source_publication_date, price_date) > 365
+            LIMIT 1
         """).fetchone()
-        if duplicate:
-            raise ValueError(f"Duplicate manual share invalidation target: {duplicate}")
+        if invalid:
+            raise ValueError(f"Invalid dated manual share row: {invalid}")
         duplicate_date = con.execute("""
-            SELECT security_id, ticker, source_publication_date
+            SELECT security_id, price_date
             FROM bronze.eodhd_share_manual_adjustment
             GROUP BY ALL HAVING COUNT(*) > 1 LIMIT 1
         """).fetchone()
         if duplicate_date:
-            raise ValueError(f"Ambiguous manual share date: {duplicate_date}")
+            raise ValueError(f"Duplicate security/date manual shares: {duplicate_date}")
         con.execute(SNAPSHOT_SQL)
         con.execute(DAILY_SQL)
         for lag in (1, 5, 22):
@@ -188,10 +200,12 @@ def build(con):
         FROM silver.security_daily_market_cap_source_priority_candidate
         GROUP BY 1 ORDER BY 1
         """).fetchall()
-        con.execute("COMMIT")
+        if manage_transaction:
+            con.execute("COMMIT")
         return rows
     except Exception:
-        con.execute("ROLLBACK")
+        if manage_transaction:
+            con.execute("ROLLBACK")
         raise
 
 

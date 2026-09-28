@@ -19,9 +19,12 @@ CREATE TABLE IF NOT EXISTS bronze.eodhd_share_manual_adjustment (
     source_excerpt VARCHAR NOT NULL,
     source_document_sha256 VARCHAR,
     recorded_at TIMESTAMP NOT NULL,
+    price_date DATE NOT NULL,
     CHECK (target_shares IS NULL OR target_shares > 0),
     CHECK (sourced_shares > 0),
     CHECK (shares_as_of_date <= source_publication_date),
+    CHECK (price_date >= source_publication_date),
+    CHECK (date_diff('day', source_publication_date, price_date) <= 365),
     CHECK (
         (target_provider_symbol IS NULL AND target_period_date IS NULL
          AND target_filing_date IS NULL AND target_shares IS NULL)
@@ -30,3 +33,7 @@ CREATE TABLE IF NOT EXISTS bronze.eodhd_share_manual_adjustment (
          AND target_filing_date IS NOT NULL AND target_shares IS NOT NULL)
     )
 );
+
+-- Migration for an empty table created by the earlier sparse prototype.
+ALTER TABLE bronze.eodhd_share_manual_adjustment
+    ADD COLUMN IF NOT EXISTS price_date DATE;

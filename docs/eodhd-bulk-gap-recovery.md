@@ -22,8 +22,12 @@ EODHD hyphenated class code may match a dotted research ticker (for example
 `BRK-A` to `BRK.A`); this conversion applies only when that exact dotted
 ticker has the same adjacent security ID. The original provider code remains
 on the candidate and in the Silver `source_symbol` field. If an exact and an
-alias code both occur, the duplicate is excluded for review. An
-invalid OHLCV bar or a close more than twice or less than half either adjacent
+alias code both occur, the duplicate is excluded for review.
+This is a general normalization rule in the recovery script, not a mapping
+recorded in the security master or a hand-approved list of class tickers.
+It runs only for the two named 2019 sessions. The adjacent Silver price rows
+provide the security ID; the normalization alone does not assign identity.
+An invalid OHLCV bar or a close more than twice or less than half either adjacent
 close is reported as a review case. Only `candidate_usable` rows enter the
 canonical Silver security price table. The candidate includes the Bronze
 response digest for provenance. There are no additions to `bronze.ohlcv`.

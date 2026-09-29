@@ -24,8 +24,11 @@ COMPANYFACTS_CACHE_DIR = Path(
     "data/external/sec/companyfacts"
 )
 
-FILINGS_CACHE_DIR = Path(
-    "data/external/sec/filings"
+# Unlike an interactive shell's working directory, the installed source
+# location is stable when this package is used from a repository subfolder.
+FILINGS_CACHE_DIR = (
+    Path(__file__).resolve().parents[2]
+    / "data/external/sec/filings"
 )
 
 TICKER_CACHE_PATH = Path(
@@ -325,10 +328,8 @@ def get_filing_document(
         f"{primary_document}"
     )
 
-    if (
-        not cache_path.exists()
-        or refresh
-    ):
+    cache_hit = cache_path.exists() and not refresh
+    if not cache_hit:
         with httpx.Client(
             headers=_headers(),
             timeout=30.0,
@@ -359,6 +360,9 @@ def get_filing_document(
 
         "content":
             content,
+
+        "source_access":
+            "local_cache" if cache_hit else "sec_archive_download",
     }
 
 

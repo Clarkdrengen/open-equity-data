@@ -6,6 +6,7 @@ CREATE TABLE IF NOT EXISTS silver.eodhd_bulk_missing_price_candidate (
     security_id BIGINT, identity_status VARCHAR, lineage_id BIGINT,
     lineage_code VARCHAR, date DATE, ticker VARCHAR, open DOUBLE,
     high DOUBLE, low DOUBLE, close DOUBLE, volume BIGINT,
+    provider_code VARCHAR,
     response_sha256 VARCHAR, before_close DOUBLE, after_close DOUBLE,
     candidate_status VARCHAR
 );
@@ -98,7 +99,7 @@ SELECT
     c.security_id, c.identity_status, c.lineage_id, c.lineage_code,
     c.date, c.ticker, c.open, c.high, c.low, c.close, c.volume,
     'eodhd' AS source,
-    c.ticker || '.US' AS source_symbol,
+    c.provider_code || '.US' AS source_symbol,
     'bulk_exact_ticker_adjacent_security' AS source_lookup_method,
     'bulk_missing_dolt_session' AS reconciliation_status,
     'external_recovered' AS observation_type,

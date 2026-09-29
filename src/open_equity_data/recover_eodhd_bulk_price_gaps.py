@@ -37,7 +37,8 @@ def build(con) -> list[tuple]:
     try:
         con.execute("""
             CREATE OR REPLACE TEMP TABLE bulk_gap_raw (
-                date DATE, ticker VARCHAR, open DOUBLE, high DOUBLE,
+                date DATE, ticker VARCHAR, provider_code VARCHAR,
+                open DOUBLE, high DOUBLE,
                 low DOUBLE, close DOUBLE, volume BIGINT,
                 response_sha256 VARCHAR, bar_valid BOOLEAN
             )
@@ -69,7 +70,10 @@ def build(con) -> list[tuple]:
                 raise ValueError(f"Unexpected EODHD response date for {session}")
             for row in rows:
                 code = row.get("code")
-                if not isinstance(code, str) or code not in bracketed:
+                if not isinstance(code, str):
+                    continue
+                ticker = code if code in bracketed else code.replace("-", ".")
+                if ticker not in bracketed:
                     continue
                 valid = _valid_bar(row)
                 prices = (
@@ -77,11 +81,11 @@ def build(con) -> list[tuple]:
                     if valid else (None, None, None, None)
                 )
                 values.append((
-                    session, code, *prices,
+                    session, ticker, code, *prices,
                     int(row["volume"]) if valid else None,
                     digest, valid,
                 ))
-        con.executemany("INSERT INTO bulk_gap_raw VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)", values)
+        con.executemany("INSERT INTO bulk_gap_raw VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", values)
         con.execute("""
             CREATE OR REPLACE TEMP TABLE bulk_gap_sessions (
                 date DATE, before_date DATE, after_date DATE
@@ -127,7 +131,8 @@ def build(con) -> list[tuple]:
             SELECT a.security_id, a.identity_status, a.lineage_id,
                    a.lineage_code, b.date, b.ticker,
                    b.open, b.high, b.low, b.close, b.volume,
-                   b.response_sha256, a.before_close, a.after_close,
+                   b.provider_code, b.response_sha256,
+                   a.before_close, a.after_close,
                    CASE
                      WHEN b.provider_rows <> 1 THEN 'duplicate_provider_code'
                      WHEN a.identity_rows <> 1 THEN 'ambiguous_security_identity'

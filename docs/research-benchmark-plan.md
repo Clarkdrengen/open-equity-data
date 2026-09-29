@@ -136,6 +136,12 @@ The reference window excludes date `t`.
 This is a time-series normalization within each security, not a
 cross-sectional z-score.
 
+An absent volume observation remains `NULL` rather than becoming zero. Both
+relative-volume and volume z-score features require all observations in their
+prior 14/20/60-session reference window. A volume gap does not erase valid
+price or return information for that security; it makes only the affected
+volume features unavailable until the reference window is complete again.
+
 ### Market state
 
 - `market_return_1d`

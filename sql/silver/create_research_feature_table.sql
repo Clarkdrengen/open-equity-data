@@ -295,12 +295,10 @@ SELECT
 
     o.volume,
 
-    LN(
-        1.0 + GREATEST(
-            CAST(o.volume AS DOUBLE),
-            0.0
-        )
-    ) AS log_volume,
+    CASE
+        WHEN o.volume IS NOT NULL AND o.volume >= 0
+        THEN LN(1.0 + CAST(o.volume AS DOUBLE))
+    END AS log_volume,
 
     m.market_return_1d,
 
@@ -366,6 +364,26 @@ SELECT
         ORDER BY date
         ROWS BETWEEN 60 PRECEDING AND 1 PRECEDING
     ) AS n_prior_60,
+
+    -- A missing volume is unknown, not a zero-volume observation.
+    -- Require a complete prior volume window independently of returns.
+    COUNT(log_volume) OVER (
+        PARTITION BY security_id, return_segment_id
+        ORDER BY date
+        ROWS BETWEEN 14 PRECEDING AND 1 PRECEDING
+    ) AS n_prior_volume_14,
+
+    COUNT(log_volume) OVER (
+        PARTITION BY security_id, return_segment_id
+        ORDER BY date
+        ROWS BETWEEN 20 PRECEDING AND 1 PRECEDING
+    ) AS n_prior_volume_20,
+
+    COUNT(log_volume) OVER (
+        PARTITION BY security_id, return_segment_id
+        ORDER BY date
+        ROWS BETWEEN 60 PRECEDING AND 1 PRECEDING
+    ) AS n_prior_volume_60,
 
 
     -- --------------------------------------------------------
@@ -651,18 +669,21 @@ WITH f AS (
         -- Relative volume
         CASE
             WHEN n_prior_14 = 14
+             AND n_prior_volume_14 = 14
              AND median_volume_14 > 0
             THEN volume / median_volume_14
         END AS relative_volume_14d,
 
         CASE
             WHEN n_prior_20 = 20
+             AND n_prior_volume_20 = 20
              AND median_volume_20 > 0
             THEN volume / median_volume_20
         END AS relative_volume_20d,
 
         CASE
             WHEN n_prior_60 = 60
+             AND n_prior_volume_60 = 60
              AND median_volume_60 > 0
             THEN volume / median_volume_60
         END AS relative_volume_60d,
@@ -671,6 +692,7 @@ WITH f AS (
         -- Volume z-score
         CASE
             WHEN n_prior_14 = 14
+             AND n_prior_volume_14 = 14
              AND sd_log_volume_14 > 0
             THEN
                 (log_volume - mean_log_volume_14)
@@ -679,6 +701,7 @@ WITH f AS (
 
         CASE
             WHEN n_prior_20 = 20
+             AND n_prior_volume_20 = 20
              AND sd_log_volume_20 > 0
             THEN
                 (log_volume - mean_log_volume_20)
@@ -687,6 +710,7 @@ WITH f AS (
 
         CASE
             WHEN n_prior_60 = 60
+             AND n_prior_volume_60 = 60
              AND sd_log_volume_60 > 0
             THEN
                 (log_volume - mean_log_volume_60)
